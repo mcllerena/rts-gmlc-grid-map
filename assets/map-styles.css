@@ -61,6 +61,38 @@ body.dark-mode .map-warning {
   cursor: pointer;
 }
 
+.view-mode-tabs {
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  border-radius: 4px;
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+}
+
+.view-mode-tab {
+  border: 0;
+  border-right: 1px solid rgba(0, 0, 0, 0.2);
+  padding: 6px 10px;
+  background: #f3f4f6;
+  color: #1f2937;
+  font: 12px/1.2 sans-serif;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.view-mode-tab:last-child {
+  border-right: 0;
+}
+
+.view-mode-tab.active {
+  background: #0f172a;
+  color: #f9fafb;
+}
+
 .contingency-control {
   background: #ffffff;
   border: 1px solid rgba(0, 0, 0, 0.25);
@@ -113,6 +145,17 @@ body.dark-mode .map-warning {
 body.dark-mode .theme-toggle-btn {
   background: #1b2230;
   color: #f3f4f6;
+}
+
+body.dark-mode .view-mode-tab {
+  background: #1b2230;
+  color: #e5e7eb;
+  border-right-color: rgba(255, 255, 255, 0.2);
+}
+
+body.dark-mode .view-mode-tab.active {
+  background: #f9fafb;
+  color: #111827;
 }
 
 body.dark-mode .contingency-control {

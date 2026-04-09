@@ -22,6 +22,7 @@
   let linesLayer = null;
   let genConnLayer = null;
   let areasLayer = null;
+  let contingencyControlContainer = null;
   let selectedContingencyUid = "";
   const contingencySeasonByUid = {};
   const popupLayers = [];
@@ -287,7 +288,157 @@
     });
   };
 
-  const createContingencyControl = (branchGeo) => {
+  const normalizeBusValue = (value) => {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) {
+      return String(Math.trunc(numeric));
+    }
+    return String(value ?? "").trim();
+  };
+
+  const normalizeCktValue = (value) => String(value ?? "").trim().toUpperCase();
+
+  const cktCandidatesFromUid = (uid) => {
+    const raw = String(uid ?? "").trim();
+    const candidates = [];
+
+    if (raw) {
+      candidates.push(raw);
+
+      if (raw.includes("-")) {
+        candidates.push(raw.split("-").pop() || "");
+      }
+
+      candidates.push(raw.replace(/^[A-Za-z]+/, ""));
+    }
+
+    return Array.from(new Set(candidates.map((value) => normalizeCktValue(value)).filter((value) => value.length > 0)));
+  };
+
+  const parseCsvLine = (line) => {
+    const fields = [];
+    let current = "";
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i += 1) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          current += '"';
+          i += 1;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (ch === "," && !inQuotes) {
+        fields.push(current);
+        current = "";
+      } else {
+        current += ch;
+      }
+    }
+
+    fields.push(current);
+    return fields;
+  };
+
+  const readLineNamesCsv = async () => {
+    try {
+      const response = await fetch(`${geojsonBasePath}/line_names.csv`, { cache: "no-cache" });
+      if (!response.ok) {
+        return [];
+      }
+
+      const text = await response.text();
+      const lines = text
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+
+      if (!lines.length) {
+        return [];
+      }
+
+      const header = parseCsvLine(lines[0]);
+      const colIndex = {
+        contingency: header.indexOf("Contingency"),
+        fromBus: header.indexOf("FromBus"),
+        toBus: header.indexOf("ToBus"),
+        ckt: header.indexOf("CKT")
+      };
+
+      if (colIndex.contingency < 0 || colIndex.fromBus < 0 || colIndex.toBus < 0 || colIndex.ckt < 0) {
+        return [];
+      }
+
+      return lines.slice(1).map((line) => {
+        const cols = parseCsvLine(line);
+        return {
+          contingency: String(cols[colIndex.contingency] || "").trim(),
+          fromBus: normalizeBusValue(cols[colIndex.fromBus]),
+          toBus: normalizeBusValue(cols[colIndex.toBus]),
+          ckt: normalizeCktValue(cols[colIndex.ckt])
+        };
+      }).filter((row) => row.contingency.length > 0 && row.fromBus.length > 0 && row.toBus.length > 0);
+    } catch (_error) {
+      return [];
+    }
+  };
+
+  const buildLineNameByUid = (branchGeo, lineNameRows) => {
+    const byPair = new Map();
+    const byPairAndCkt = new Map();
+
+    lineNameRows.forEach((row) => {
+      const pairForward = `${row.fromBus}|${row.toBus}`;
+      const pairReverse = `${row.toBus}|${row.fromBus}`;
+      const ckt = normalizeCktValue(row.ckt);
+
+      if (!byPair.has(pairForward)) {
+        byPair.set(pairForward, row.contingency);
+      }
+      if (!byPair.has(pairReverse)) {
+        byPair.set(pairReverse, row.contingency);
+      }
+
+      if (ckt) {
+        byPairAndCkt.set(`${pairForward}|${ckt}`, row.contingency);
+        byPairAndCkt.set(`${pairReverse}|${ckt}`, row.contingency);
+      }
+    });
+
+    const out = {};
+    (branchGeo.features || []).forEach((feature) => {
+      const props = (feature && feature.properties) || {};
+      const uid = String(props.UID || "").trim();
+      if (!uid) {
+        return;
+      }
+
+      const fromBus = normalizeBusValue(props["From Bus"]);
+      const toBus = normalizeBusValue(props["To Bus"]);
+      const pair = `${fromBus}|${toBus}`;
+
+      let label = "";
+      const cktCandidates = cktCandidatesFromUid(uid);
+      for (const ckt of cktCandidates) {
+        const candidate = byPairAndCkt.get(`${pair}|${ckt}`);
+        if (candidate) {
+          label = candidate;
+          break;
+        }
+      }
+
+      if (!label) {
+        label = byPair.get(pair) || uid;
+      }
+
+      out[uid] = label;
+    });
+
+    return out;
+  };
+
+  const createContingencyControl = (branchGeo, lineNameByUid) => {
     const lineOptions = Array.from(new Set((branchGeo.features || [])
       .map((feature) => String((feature && feature.properties && feature.properties.UID) || ""))
       .filter((uid) => uid.length > 0)))
@@ -297,6 +448,7 @@
       options: { position: "topleft" },
       onAdd() {
         const container = L.DomUtil.create("div", "contingency-control leaflet-bar");
+        contingencyControlContainer = container;
         const panel = L.DomUtil.create("div", "contingency-panel", container);
 
         const button = L.DomUtil.create("button", "contingency-toggle-btn", panel);
@@ -347,7 +499,8 @@
               return;
             }
             const season = contingencySeasonByUid[option.value] || "";
-            option.textContent = season ? `${option.value}` : option.value;
+            const baseLabel = lineNameByUid[option.value] || option.value;
+            option.textContent = season ? `${baseLabel} (${seasonLabel(season)})` : baseLabel;
           });
         };
 
@@ -522,12 +675,15 @@
   };
 
   const initializeMap = async () => {
-    const [busGeo, branchGeo, genGeo, genConnGeo] = await Promise.all([
+    const [busGeo, branchGeo, genGeo, genConnGeo, lineNameRows] = await Promise.all([
       readGeoJson("bus"),
       readGeoJson("branch"),
       readGeoJson("gen"),
-      readGeoJson("gen_conn")
+      readGeoJson("gen_conn"),
+      readLineNamesCsv()
     ]);
+
+    const lineNameByUid = buildLineNameByUid(branchGeo, lineNameRows);
 
     const categoryOf = (feature) => ((feature && feature.properties && feature.properties.Category) || "Unknown");
     const uniqueCategories = Array.from(new Set((genGeo.features || []).map(categoryOf))).sort();
@@ -629,7 +785,7 @@
       }
     }).addTo(map);
 
-    createContingencyControl(branchGeo);
+    createContingencyControl(branchGeo, lineNameByUid);
 
     genConnLayer = L.geoJSON(genConnGeo, {
       style: () => ({ color: "#000000", weight: 2, opacity: 0.95, dashArray: "6,6" }),
@@ -705,34 +861,108 @@
       [`${legendGenConn}Generator Connections`]: genConnLayer
     };
 
-    L.control.layers(null, overlays, { collapsed: false }).addTo(map);
+    const layersControl = L.control.layers(null, overlays, { collapsed: false }).addTo(map);
+
+    const setOverlayLegendEntryVisible = (labelText, visible) => {
+      if (!layersControl || !layersControl.getContainer) {
+        return;
+      }
+
+      const container = layersControl.getContainer();
+      if (!container) {
+        return;
+      }
+
+      const labels = container.querySelectorAll("label");
+      labels.forEach((label) => {
+        const text = (label.textContent || "").trim();
+        if (text.includes(labelText)) {
+          label.style.display = visible ? "" : "none";
+        }
+      });
+    };
+
+    const applyCategoryVisibility = (category, checked) => {
+      (categoryToLayers[category] || []).forEach((layer) => {
+        if (checked) {
+          if (!map.hasLayer(layer)) {
+            layer.addTo(map);
+          }
+        } else if (map.hasLayer(layer)) {
+          map.removeLayer(layer);
+        }
+      });
+    };
+
+    const applyBusTypeVisibility = (busType, checked) => {
+      (busTypeToLayers[busType] || []).forEach((layer) => {
+        if (checked) {
+          if (!map.hasLayer(layer)) {
+            layer.addTo(map);
+          }
+        } else if (map.hasLayer(layer)) {
+          map.removeLayer(layer);
+        }
+      });
+    };
+
+    let categoryCheckboxes = [];
+    let categoryEnableAllCheckbox = null;
+    let busTypeCheckboxes = [];
+    let busTypeEnableAllCheckbox = null;
+    let genLegendElement = null;
+    let busLegendElement = null;
+
+    const setAllGeneratorCategories = (checked) => {
+      categoryCheckboxes.forEach((checkbox, index) => {
+        checkbox.checked = checked;
+        const category = uniqueCategories[index];
+        applyCategoryVisibility(category, checked);
+      });
+      if (categoryEnableAllCheckbox) {
+        categoryEnableAllCheckbox.checked = checked;
+      }
+    };
+
+    const setAllBusTypes = (checked) => {
+      busTypeCheckboxes.forEach((checkbox, index) => {
+        checkbox.checked = checked;
+        const busType = uniqueBusTypes[index];
+        applyBusTypeVisibility(busType, checked);
+      });
+      if (busTypeEnableAllCheckbox) {
+        busTypeEnableAllCheckbox.checked = checked;
+      }
+    };
+
+    const setLayerVisible = (layer, visible) => {
+      if (!layer) {
+        return;
+      }
+      if (visible) {
+        if (!map.hasLayer(layer)) {
+          layer.addTo(map);
+        }
+      } else if (map.hasLayer(layer)) {
+        map.removeLayer(layer);
+      }
+    };
 
     const genCategoryLegend = L.control({ position: "topright" });
     genCategoryLegend.onAdd = () => {
       const div = L.DomUtil.create("div", "gen-category-legend");
+      genLegendElement = div;
       const title = L.DomUtil.create("div", "legend-title", div);
       title.textContent = "Generator Categories";
 
-      const applyCategoryVisibility = (category, checked) => {
-        (categoryToLayers[category] || []).forEach((layer) => {
-          if (checked) {
-            if (!map.hasLayer(layer)) {
-              layer.addTo(map);
-            }
-          } else if (map.hasLayer(layer)) {
-            map.removeLayer(layer);
-          }
-        });
-      };
-
       const enableAllRow = L.DomUtil.create("label", "legend-row", div);
-      const enableAllCheckbox = L.DomUtil.create("input", "legend-checkbox", enableAllRow);
-      enableAllCheckbox.type = "checkbox";
-      enableAllCheckbox.checked = true;
+      categoryEnableAllCheckbox = L.DomUtil.create("input", "legend-checkbox", enableAllRow);
+      categoryEnableAllCheckbox.type = "checkbox";
+      categoryEnableAllCheckbox.checked = true;
       const enableAllText = L.DomUtil.create("span", "", enableAllRow);
       enableAllText.textContent = "Enable All";
 
-      const categoryCheckboxes = [];
+      categoryCheckboxes = [];
 
       uniqueCategories.forEach((category) => {
         const row = L.DomUtil.create("label", "legend-row", div);
@@ -749,13 +979,15 @@
 
         checkbox.addEventListener("change", () => {
           applyCategoryVisibility(category, checkbox.checked);
-          enableAllCheckbox.checked = categoryCheckboxes.every((cb) => cb.checked);
+          if (categoryEnableAllCheckbox) {
+            categoryEnableAllCheckbox.checked = categoryCheckboxes.every((cb) => cb.checked);
+          }
         });
       });
 
-      enableAllCheckbox.addEventListener("change", () => {
+      categoryEnableAllCheckbox.addEventListener("change", () => {
         categoryCheckboxes.forEach((checkbox, index) => {
-          checkbox.checked = enableAllCheckbox.checked;
+          checkbox.checked = categoryEnableAllCheckbox.checked;
           const category = uniqueCategories[index];
           applyCategoryVisibility(category, checkbox.checked);
         });
@@ -771,29 +1003,18 @@
     const busTypeLegend = L.control({ position: "topright" });
     busTypeLegend.onAdd = () => {
       const div = L.DomUtil.create("div", "bus-type-legend");
+      busLegendElement = div;
       const title = L.DomUtil.create("div", "legend-title", div);
       title.textContent = "Buses";
 
-      const applyBusTypeVisibility = (busType, checked) => {
-        (busTypeToLayers[busType] || []).forEach((layer) => {
-          if (checked) {
-            if (!map.hasLayer(layer)) {
-              layer.addTo(map);
-            }
-          } else if (map.hasLayer(layer)) {
-            map.removeLayer(layer);
-          }
-        });
-      };
-
       const enableAllRow = L.DomUtil.create("label", "legend-row", div);
-      const enableAllCheckbox = L.DomUtil.create("input", "legend-checkbox", enableAllRow);
-      enableAllCheckbox.type = "checkbox";
-      enableAllCheckbox.checked = true;
+      busTypeEnableAllCheckbox = L.DomUtil.create("input", "legend-checkbox", enableAllRow);
+      busTypeEnableAllCheckbox.type = "checkbox";
+      busTypeEnableAllCheckbox.checked = true;
       const enableAllText = L.DomUtil.create("span", "", enableAllRow);
       enableAllText.textContent = "Enable All";
 
-      const busTypeCheckboxes = [];
+      busTypeCheckboxes = [];
 
       uniqueBusTypes.forEach((busType) => {
         const row = L.DomUtil.create("label", "legend-row", div);
@@ -810,13 +1031,15 @@
 
         checkbox.addEventListener("change", () => {
           applyBusTypeVisibility(busType, checkbox.checked);
-          enableAllCheckbox.checked = busTypeCheckboxes.every((cb) => cb.checked);
+          if (busTypeEnableAllCheckbox) {
+            busTypeEnableAllCheckbox.checked = busTypeCheckboxes.every((cb) => cb.checked);
+          }
         });
       });
 
-      enableAllCheckbox.addEventListener("change", () => {
+      busTypeEnableAllCheckbox.addEventListener("change", () => {
         busTypeCheckboxes.forEach((checkbox, index) => {
-          checkbox.checked = enableAllCheckbox.checked;
+          checkbox.checked = busTypeEnableAllCheckbox.checked;
           const busType = uniqueBusTypes[index];
           applyBusTypeVisibility(busType, checkbox.checked);
         });
@@ -829,6 +1052,72 @@
 
     busTypeLegend.addTo(map);
 
+    const setViewMode = (mode) => {
+      const isContingency = mode === "contingency";
+
+      setTheme(isContingency ? "dark" : "light");
+
+      // Keep the overlays in a deterministic state by mode.
+      setLayerVisible(linesLayer, true);
+      setLayerVisible(areasLayer, !isContingency);
+      setLayerVisible(genConnLayer, !isContingency);
+
+      // Default mode = all component data; contingency mode = lines-only focus.
+      setAllGeneratorCategories(!isContingency);
+      setAllBusTypes(!isContingency);
+
+      if (genLegendElement) {
+        genLegendElement.style.display = isContingency ? "none" : "block";
+      }
+      if (busLegendElement) {
+        busLegendElement.style.display = isContingency ? "none" : "block";
+      }
+      if (contingencyControlContainer) {
+        contingencyControlContainer.style.display = isContingency ? "block" : "none";
+      }
+
+      setOverlayLegendEntryVisible("Generator Connections", !isContingency);
+
+      const defaultTab = document.getElementById("view-mode-default");
+      const contingencyTab = document.getElementById("view-mode-contingency");
+      if (defaultTab && contingencyTab) {
+        defaultTab.classList.toggle("active", !isContingency);
+        contingencyTab.classList.toggle("active", isContingency);
+      }
+    };
+
+    const ViewModeControl = L.Control.extend({
+      options: { position: "topleft" },
+      onAdd() {
+        const container = L.DomUtil.create("div", "view-mode-tabs leaflet-bar");
+        container.id = "view-mode-tabs";
+        const defaultBtn = L.DomUtil.create("button", "view-mode-tab active", container);
+        defaultBtn.id = "view-mode-default";
+        defaultBtn.type = "button";
+        defaultBtn.textContent = "Default";
+
+        const contingencyBtn = L.DomUtil.create("button", "view-mode-tab", container);
+        contingencyBtn.id = "view-mode-contingency";
+        contingencyBtn.type = "button";
+        contingencyBtn.textContent = "Contingency Analysis";
+
+        L.DomEvent.disableClickPropagation(container);
+        L.DomEvent.disableScrollPropagation(container);
+
+        defaultBtn.addEventListener("click", () => setViewMode("default"));
+        contingencyBtn.addEventListener("click", () => setViewMode("contingency"));
+
+        return container;
+      }
+    });
+
+    map.addControl(new ViewModeControl());
+
+    const tabsContainer = document.getElementById("view-mode-tabs");
+    if (tabsContainer) {
+      map.getContainer().appendChild(tabsContainer);
+    }
+
     const allLayers = L.featureGroup([linesLayer, busesLayer, gensLayer]);
     areasLayer.eachLayer((layer) => layer.bringToBack());
 
@@ -838,7 +1127,7 @@
       // Keep fallback center/zoom.
     }
 
-    setTheme("light");
+    setViewMode("default");
   };
 
   initializeMap().catch((error) => {
