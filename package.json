@@ -1,0 +1,15 @@
+{
+  "name": "rts-gmlc-grid-map",
+  "version": "1.0.0",
+  "private": true,
+  "description": "RTS-GMLC grid map for local development and GitHub Pages deployment",
+  "scripts": {
+    "build": "python3 map.py",
+    "start": "npm run build && npx serve .",
+    "deploy": "npm run build && npx gh-pages -d ."
+  },
+  "devDependencies": {
+    "gh-pages": "^6.1.1",
+    "serve": "^14.2.1"
+  }
+}

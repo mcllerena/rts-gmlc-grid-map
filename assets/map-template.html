@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{MAP_TITLE}}</title>
+  <link rel="stylesheet" href="./assets/leaflet.css" />
+  <link rel="stylesheet" href="./assets/map-styles.css" />
+</head>
+<body>
+  <div id="map"></div>
+  <div id="map-warning" class="map-warning">Basemap tiles could not load. Network/proxy may be blocking tile.openstreetmap.org.</div>
+
+  <script>
+    window.RTS_MAP_CONFIG = {
+      geojsonBasePath: "./gis",
+      initialCenter: [{{CENTER_LAT}}, {{CENTER_LON}}],
+      initialZoom: 6,
+      builtAt: "{{BUILT_AT}}"
+    };
+  </script>
+  <script src="./assets/leaflet.js"></script>
+  <script src="./assets/map-app.js"></script>
+</body>
+</html>

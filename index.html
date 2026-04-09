@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RTS-GMLC Grid Map</title>
+  <link rel="stylesheet" href="./assets/leaflet.css" />
+  <link rel="stylesheet" href="./assets/map-styles.css" />
+</head>
+<body>
+  <div id="map"></div>
+  <div id="map-warning" class="map-warning">Basemap tiles could not load. Network/proxy may be blocking tile.openstreetmap.org.</div>
+
+  <script>
+    window.RTS_MAP_CONFIG = {
+      geojsonBasePath: "./gis",
+      initialCenter: [34.810643, -115.683145],
+      initialZoom: 6,
+      builtAt: "2026-04-09T23:00:13+00:00"
+    };
+  </script>
+  <script src="./assets/leaflet.js"></script>
+  <script src="./assets/map-app.js"></script>
+</body>
+</html>
