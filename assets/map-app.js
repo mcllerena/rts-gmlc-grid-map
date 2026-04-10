@@ -4,7 +4,11 @@
   const fallbackCenter = Array.isArray(config.initialCenter) ? config.initialCenter : [39.5, -98.35];
   const fallbackZoom = Number.isFinite(config.initialZoom) ? config.initialZoom : 6;
 
-  const map = L.map("map", { zoomControl: true }).setView(fallbackCenter, fallbackZoom);
+  const map = L.map("map", {
+    zoomControl: true,
+    zoomDelta: 0.5,
+    zoomSnap: 0.5
+  }).setView(fallbackCenter, fallbackZoom);
 
   const lightTiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
@@ -20,11 +24,32 @@
   let activeBaseLayer = null;
   let activeTileErrorCount = 0;
   let linesLayer = null;
+  let busesLayer = null;
   let genConnLayer = null;
   let areasLayer = null;
   let contingencyControlContainer = null;
   let selectedContingencyUid = "";
+  let selectedContingencySeason = "";
+  let activeContingencyConverged = false;
+  let activeLineMetric = "loading";
+  let isBusVoltageMetricActive = false;
+  let currentViewMode = "default";
+  let loadingMetricButton = null;
+  let lineFlowMetricButton = null;
+  let busVoltageMetricButton = null;
+  let genActiveMetricButton = null;
+  let genReactiveMetricButton = null;
+  let activeGeneratorMetric = null;
+  let lineColorLegendElement = null;
   const contingencySeasonByUid = {};
+  const caRowsCacheBySeason = new Map();
+  const caBusRowsCacheBySeason = new Map();
+  const caGenRowsCacheBySeason = new Map();
+  let activeFlowRowsByUid = {};
+  let activeBusRowsByBusId = {};
+  let activeGenRowsByBusId = {};
+  let activeGenRowsByBusAndMachine = {};
+  let activeGenRowsListByBus = {};
   const popupLayers = [];
   const warning = document.getElementById("map-warning");
 
@@ -36,7 +61,7 @@
   };
 
   const contingencyLineStyle = {
-    color: "#ff0000",
+    color: "#fffb00",
     weight: 4,
     opacity: 1,
     dashArray: "8 6"
@@ -176,6 +201,17 @@
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 
+  const formatFloatValue = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return value ?? "N/A";
+    }
+    if (Number.isInteger(numeric)) {
+      return String(Math.trunc(numeric));
+    }
+    return numeric.toFixed(2);
+  };
+
   const propertiesToPopupHtml = (props, title) => {
     const entries = Object.entries(props || {});
     if (!entries.length) {
@@ -183,7 +219,7 @@
     }
 
     const rows = entries
-      .map(([key, value]) => `<b>${esc(key)}:</b> ${esc(value ?? "N/A")}`)
+      .map(([key, value]) => `<b>${esc(key)}:</b> ${esc(formatFloatValue(value))}`)
       .join("<br>");
 
     return `<b>${esc(title)}</b><br>${rows}`;
@@ -214,9 +250,36 @@
   const generatorPropertiesToPopupHtml = (props) => {
     const p = props || {};
     const rows = generatorPopupFields
-      .map((key) => `<b>${esc(key)}:</b> ${esc(p[key] ?? "N/A")}`)
+      .map((key) => `<b>${esc(key)}:</b> ${esc(formatFloatValue(p[key]))}`)
       .join("<br>");
     return `<b>Generator</b><br>${rows}`;
+  };
+
+  const generatorContingencyPopupHtml = (row) => {
+    if (!row) {
+      return "<b>Generator</b><br>No contingency generator data found.";
+    }
+
+    const formatGenPowerValue = (value) => {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) {
+        return "N/A";
+      }
+      const fixed = numeric.toFixed(2);
+      return fixed.endsWith(".00") ? fixed.replace(".00", ".0") : fixed;
+    };
+
+    const lines = [
+      `<b>MachineID:</b> ${esc(formatFloatValue(row.MachineID))}`,
+      `<b>Active Power:</b> ${esc(`${formatGenPowerValue(row["Pg(MW)"])} MW`)}`,
+      `<b>Reactive Power:</b> ${esc(`${formatGenPowerValue(row["Qg(MVAr)"])} MVAr`)}`,
+      `<b>Max Active Power:</b> ${esc(`${formatGenPowerValue(row["PgMax(MW)"])} MW`)}`,
+      `<b>Min Active Power:</b> ${esc(`${formatGenPowerValue(row["PgMin(MW)"])} MW`)}`,
+      `<b>Max Reactive Power:</b> ${esc(`${formatGenPowerValue(row["QgMax(MVAr)"])} MVAr`)}`,
+      `<b>Min Reactive Power:</b> ${esc(`${formatGenPowerValue(row["QgMin(MVAr)"])} MVAr`)}`,
+      `<b>Violation:</b> ${esc(formatFloatValue(row.Violation))}`
+    ];
+    return `<b>Generator</b><br>${lines.join("<br>")}`;
   };
 
   const closeAllPinnedPopups = () => {
@@ -230,19 +293,35 @@
     closeAllPinnedPopups();
   });
 
-  const bindHoverPopup = (layer, html) => {
+  const bindHoverPopup = (layer, htmlOrResolver) => {
     layer._popupPinned = false;
-    layer.bindPopup(html, {
+    layer.bindPopup("", {
       closeButton: true,
       autoClose: false,
       closeOnClick: false,
       autoPan: false
     });
 
+    const getHtml = () => {
+      if (typeof htmlOrResolver === "function") {
+        return htmlOrResolver(layer);
+      }
+      return htmlOrResolver;
+    };
+
+    const updatePopupContent = () => {
+      const popup = layer.getPopup && layer.getPopup();
+      if (!popup || !popup.setContent) {
+        return;
+      }
+      popup.setContent(getHtml());
+    };
+
     popupLayers.push(layer);
 
     layer.on("mouseover", function onOver() {
       if (!this._popupPinned) {
+        updatePopupContent();
         this.openPopup();
       }
     });
@@ -258,6 +337,7 @@
         L.DomEvent.stopPropagation(event.originalEvent);
       }
       this._popupPinned = true;
+      updatePopupContent();
       this.openPopup(event ? event.latlng : undefined);
     });
 
@@ -268,6 +348,19 @@
 
   const lineStyleForFeature = (feature) => {
     const uid = String((feature && feature.properties && feature.properties.UID) || "");
+    if (currentViewMode === "contingency" && activeContingencyConverged && (activeLineMetric === "loading" || activeLineMetric === "lineFlow")) {
+      const value = getMetricValueForUid(uid, activeLineMetric);
+      if (Number.isFinite(value)) {
+        const { min, max } = getMetricRange(activeLineMetric);
+        return {
+          color: colorForMetricValue(value, min, max, activeLineMetric),
+          weight: 3.2,
+          opacity: 0.95,
+          dashArray: ""
+        };
+      }
+    }
+
     if (selectedContingencyUid && uid === selectedContingencyUid) {
       return contingencyLineStyle;
     }
@@ -288,6 +381,159 @@
     });
   };
 
+  const busIconHtml = (color) => `<div style="width:12px;height:12px;background:${color};border:1px solid ${color};box-sizing:border-box;position:relative;overflow:hidden;"><span style="position:absolute;left:-2px;top:5px;width:16px;height:1.4px;background:#111;transform:rotate(45deg);transform-origin:center;"></span></div>`;
+
+  const busIdFromFeature = (feature) => normalizeBusValue(((feature && feature.properties) || {})["Bus ID"]);
+
+  const refreshBusColors = () => {
+    if (!busesLayer) {
+      return;
+    }
+
+    const voltageRange = getMetricRange("busVoltage");
+
+    busesLayer.eachLayer((layer) => {
+      const feature = layer && layer.feature;
+      const busId = busIdFromFeature(feature);
+      const baseColor = layer.options && layer.options.baseBusColor ? layer.options.baseBusColor : "#000000";
+
+      let color = baseColor;
+      if (currentViewMode === "contingency" && activeContingencyConverged && isBusVoltageMetricActive) {
+        const value = getMetricValueForBusId(busId, "busVoltage");
+        if (Number.isFinite(value)) {
+          color = colorForMetricValue(value, voltageRange.min, voltageRange.max, "busVoltage");
+        }
+      }
+
+      if (layer && layer.setIcon) {
+        layer.setIcon(L.divIcon({
+          className: "bus-square-icon",
+          html: busIconHtml(color),
+          iconSize: [12, 12],
+          iconAnchor: [6, 6]
+        }));
+      }
+    });
+  };
+
+  const getMetricValueForRow = (row, metric) => {
+    if (!row) {
+      return Number.NaN;
+    }
+
+    if (metric === "loading") {
+      return Number(row["Loading_%"]);
+    }
+
+    if (metric === "lineFlow") {
+      return Math.abs(Number(row["Pij(MW)"]));
+    }
+
+    if (metric === "busVoltage") {
+      return Number(row["Volt(pu)"]);
+    }
+
+    if (metric === "genActive") {
+      return Math.abs(Number(row["Pg(MW)"]));
+    }
+
+    if (metric === "genReactive") {
+      return Math.abs(Number(row["Qg(MVAr)"]));
+    }
+
+    return Number.NaN;
+  };
+
+  const getMetricValueForUid = (uid, metric) => getMetricValueForRow(activeFlowRowsByUid[uid], metric);
+
+  const getMetricValueForBusId = (busId, metric) => getMetricValueForRow(activeBusRowsByBusId[busId], metric);
+
+  const getMetricRange = (metric) => {
+    let sourceRows = Object.values(activeFlowRowsByUid);
+    if (metric === "busVoltage") {
+      sourceRows = Object.values(activeBusRowsByBusId);
+    }
+    if (metric === "genActive" || metric === "genReactive") {
+      sourceRows = Object.values(activeGenRowsByBusAndMachine);
+    }
+    const values = sourceRows
+      .map((row) => getMetricValueForRow(row, metric))
+      .filter((value) => Number.isFinite(value));
+
+    if (!values.length) {
+      return { min: 0, max: 1 };
+    }
+
+    if (metric === "busVoltage") {
+      const minRaw = Math.min(...values);
+      const maxRaw = Math.max(...values);
+      return {
+        min: minRaw,
+        max: maxRaw
+      };
+    }
+
+    const minRaw = Math.min(...values);
+    const maxRaw = Math.max(...values);
+    const minRounded = Math.floor(minRaw);
+    const maxRounded = Math.ceil(maxRaw);
+
+    if (minRounded === maxRounded) {
+      return {
+        min: minRounded,
+        max: maxRounded + 1
+      };
+    }
+
+    return {
+      min: minRounded,
+      max: maxRounded
+    };
+  };
+
+  const colorForMetricValue = (value, min, max, metric) => {
+    let t = 0;
+    if (Number.isFinite(value) && Number.isFinite(min) && Number.isFinite(max) && max !== min) {
+      t = (value - min) / (max - min);
+      t = Math.max(0, Math.min(1, t));
+    }
+
+    if (metric === "busVoltage") {
+      if (Number.isFinite(value) && value > 1.1) {
+        return "#14532d";
+      }
+
+      // Continuous 3-stop ramp: red (min) -> yellow (mid) -> green (max)
+      const low = [239, 68, 68];
+      const mid = [250, 204, 21];
+      const high = [22, 163, 74];
+
+      let r;
+      let g;
+      let b;
+      if (t <= 0.5) {
+        const tt = t / 0.5;
+        r = Math.round(low[0] + (mid[0] - low[0]) * tt);
+        g = Math.round(low[1] + (mid[1] - low[1]) * tt);
+        b = Math.round(low[2] + (mid[2] - low[2]) * tt);
+      } else {
+        const tt = (t - 0.5) / 0.5;
+        r = Math.round(mid[0] + (high[0] - mid[0]) * tt);
+        g = Math.round(mid[1] + (high[1] - mid[1]) * tt);
+        b = Math.round(mid[2] + (high[2] - mid[2]) * tt);
+      }
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    const low = [173, 216, 230];
+    const high = [239, 68, 68];
+
+    const r = Math.round(low[0] + (high[0] - low[0]) * t);
+    const g = Math.round(low[1] + (high[1] - low[1]) * t);
+    const b = Math.round(low[2] + (high[2] - low[2]) * t);
+    return `rgb(${r}, ${g}, ${b})`;
+  };
+
   const normalizeBusValue = (value) => {
     const numeric = Number(value);
     if (Number.isFinite(numeric)) {
@@ -295,6 +541,21 @@
     }
     return String(value ?? "").trim();
   };
+
+  const normalizeMachineValue = (value) => String(value ?? "").trim().toUpperCase();
+
+  const normalizeMachineLoose = (value) => normalizeMachineValue(value).replace(/^0+/, "");
+
+  const machineNumeric = (value) => {
+    const text = normalizeMachineValue(value);
+    const match = text.match(/\d+/);
+    if (!match) {
+      return Number.NaN;
+    }
+    return Number(match[0]);
+  };
+
+  const genBusMachineKey = (busId, machineId) => `${normalizeBusValue(busId)}|${normalizeMachineValue(machineId)}`;
 
   const normalizeCktValue = (value) => String(value ?? "").trim().toUpperCase();
 
@@ -438,7 +699,598 @@
     return out;
   };
 
-  const createContingencyControl = (branchGeo, lineNameByUid) => {
+  const buildBranchMetaByUid = (branchGeo) => {
+    const out = {};
+    (branchGeo.features || []).forEach((feature) => {
+      const props = (feature && feature.properties) || {};
+      const uid = String(props.UID || "").trim();
+      if (!uid) {
+        return;
+      }
+
+      out[uid] = {
+        fromBus: normalizeBusValue(props["From Bus"]),
+        toBus: normalizeBusValue(props["To Bus"]),
+        cktCandidates: cktCandidatesFromUid(uid)
+      };
+    });
+    return out;
+  };
+
+  const getSeasonLineCsvPathCandidates = (season) => {
+    if (season === "summer") {
+      return [
+        "./ca_results/summer/rts_gmlc_export_13_40_summer_v35_N1_lines.csv"
+      ];
+    }
+
+    return [
+      "./ca_results/winter/rts_gmlc_export_10_43_winter_v35_N1_lines.csv",
+      "./ca_results/summer/rts_gmlc_export_13_40_winter_v35_N1_lines.csv"
+    ];
+  };
+
+  const readSeasonLineFlowsCsv = async (season) => {
+    if (!season) {
+      return [];
+    }
+
+    if (caRowsCacheBySeason.has(season)) {
+      return caRowsCacheBySeason.get(season);
+    }
+
+    const candidates = getSeasonLineCsvPathCandidates(season);
+    let text = "";
+
+    for (const path of candidates) {
+      try {
+        const response = await fetch(path, { cache: "no-cache" });
+        if (response.ok) {
+          text = await response.text();
+          break;
+        }
+      } catch (_error) {
+        // Try next candidate path.
+      }
+    }
+
+    if (!text) {
+      caRowsCacheBySeason.set(season, []);
+      return [];
+    }
+
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+
+    if (!lines.length) {
+      caRowsCacheBySeason.set(season, []);
+      return [];
+    }
+
+    const header = parseCsvLine(lines[0]);
+    const contingencyIndex = header.indexOf("Contingency");
+    const fromBusIndex = header.indexOf("FromBus#");
+    const toBusIndex = header.indexOf("ToBus#");
+    const cktIndex = header.indexOf("CKT");
+
+    if (contingencyIndex < 0 || fromBusIndex < 0 || toBusIndex < 0 || cktIndex < 0) {
+      caRowsCacheBySeason.set(season, []);
+      return [];
+    }
+
+    const rows = lines.slice(1).map((line) => {
+      const cols = parseCsvLine(line);
+      const row = {};
+      header.forEach((name, idx) => {
+        row[name] = String(cols[idx] || "").trim();
+      });
+
+      row.__contingency = String(cols[contingencyIndex] || "").trim();
+      row.__fromBus = normalizeBusValue(cols[fromBusIndex]);
+      row.__toBus = normalizeBusValue(cols[toBusIndex]);
+      row.__ckt = normalizeCktValue(cols[cktIndex]);
+      return row;
+    });
+
+    caRowsCacheBySeason.set(season, rows);
+    return rows;
+  };
+
+  const getSeasonBusCsvPathCandidates = (season) => {
+    if (season === "summer") {
+      return [
+        "./ca_results/summer/rts_gmlc_export_13_40_summer_v35_N1_buses.csv"
+      ];
+    }
+
+    return [
+      "./ca_results/winter/rts_gmlc_export_10_43_winter_v35_N1_buses.csv",
+      "./ca_results/summer/rts_gmlc_export_13_40_winter_v35_N1_buses.csv"
+    ];
+  };
+
+  const readSeasonBusCsv = async (season) => {
+    if (!season) {
+      return [];
+    }
+
+    if (caBusRowsCacheBySeason.has(season)) {
+      return caBusRowsCacheBySeason.get(season);
+    }
+
+    const candidates = getSeasonBusCsvPathCandidates(season);
+    let text = "";
+
+    for (const path of candidates) {
+      try {
+        const response = await fetch(path, { cache: "no-cache" });
+        if (response.ok) {
+          text = await response.text();
+          break;
+        }
+      } catch (_error) {
+        // Try next candidate path.
+      }
+    }
+
+    if (!text) {
+      caBusRowsCacheBySeason.set(season, []);
+      return [];
+    }
+
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+
+    if (!lines.length) {
+      caBusRowsCacheBySeason.set(season, []);
+      return [];
+    }
+
+    const header = parseCsvLine(lines[0]);
+    const contingencyIndex = header.indexOf("Contingency");
+    const busIndex = header.indexOf("Bus#");
+    const convergedIndex = header.indexOf("Converged");
+
+    if (contingencyIndex < 0 || busIndex < 0 || convergedIndex < 0) {
+      caBusRowsCacheBySeason.set(season, []);
+      return [];
+    }
+
+    const rows = lines.slice(1).map((line) => {
+      const cols = parseCsvLine(line);
+      const row = {};
+      header.forEach((name, idx) => {
+        row[name] = String(cols[idx] || "").trim();
+      });
+
+      row.__contingency = String(cols[contingencyIndex] || "").trim();
+      row.__busId = normalizeBusValue(cols[busIndex]);
+      row.__converged = String(cols[convergedIndex] || "").trim();
+      return row;
+    });
+
+    caBusRowsCacheBySeason.set(season, rows);
+    return rows;
+  };
+
+  const buildActiveBusRowsByBusId = (rows, contingencyName) => {
+    const out = {};
+    rows
+      .filter((row) => row.__contingency === contingencyName)
+      .forEach((row) => {
+        const busId = row.__busId;
+        if (busId) {
+          out[busId] = row;
+        }
+      });
+    return out;
+  };
+
+  const getSeasonGenCsvPathCandidates = (season) => {
+    if (season === "summer") {
+      return [
+        "./ca_results/summer/rts_gmlc_export_13_40_summer_v35_N1_gens.csv",
+        "./ca_results/winter/rts_gmlc_export_10_43_summer_v35_N1_gens.csv"
+      ];
+    }
+
+    return [
+      "./ca_results/summer/rts_gmlc_export_13_40_winter_v35_N1_gens.csv",
+      "./ca_results/winter/rts_gmlc_export_10_43_winter_v35_N1_gens.csv",
+      "./ca_results/summer/rts_gmlc_export_13_40_winter_v35_N1_gens.csv"
+    ];
+  };
+
+  const readSeasonGenCsv = async (season) => {
+    if (!season) {
+      return [];
+    }
+
+    if (caGenRowsCacheBySeason.has(season)) {
+      return caGenRowsCacheBySeason.get(season);
+    }
+
+    const candidates = getSeasonGenCsvPathCandidates(season);
+    let text = "";
+
+    for (const path of candidates) {
+      try {
+        const response = await fetch(path, { cache: "no-cache" });
+        if (response.ok) {
+          text = await response.text();
+          break;
+        }
+      } catch (_error) {
+        // Try next path.
+      }
+    }
+
+    if (!text) {
+      caGenRowsCacheBySeason.set(season, []);
+      return [];
+    }
+
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+
+    if (!lines.length) {
+      caGenRowsCacheBySeason.set(season, []);
+      return [];
+    }
+
+    const header = parseCsvLine(lines[0]);
+    const contingencyIndex = header.indexOf("Contingency");
+    const busIndex = header.indexOf("BusNumber");
+    const machineIndex = header.indexOf("MachineID");
+    const pgIndex = header.indexOf("Pg(MW)");
+    const qgIndex = header.indexOf("Qg(MVAr)");
+    const pgMaxIndex = header.indexOf("PgMax(MW)");
+    const pgMinIndex = header.indexOf("PgMin(MW)");
+    const qgMaxIndex = header.indexOf("QgMax(MVAr)");
+    const qgMinIndex = header.indexOf("QgMin(MVAr)");
+    const violationIndex = header.indexOf("Violation");
+
+    if (
+      contingencyIndex < 0
+      || busIndex < 0
+      || machineIndex < 0
+      || pgIndex < 0
+      || qgIndex < 0
+      || pgMaxIndex < 0
+      || pgMinIndex < 0
+      || qgMaxIndex < 0
+      || qgMinIndex < 0
+      || violationIndex < 0
+    ) {
+      caGenRowsCacheBySeason.set(season, []);
+      return [];
+    }
+
+    const rows = lines.slice(1).map((line) => {
+      const cols = parseCsvLine(line);
+      const row = {
+        MachineID: String(cols[machineIndex] || "").trim(),
+        "Pg(MW)": String(cols[pgIndex] || "").trim(),
+        "Qg(MVAr)": String(cols[qgIndex] || "").trim(),
+        "PgMax(MW)": String(cols[pgMaxIndex] || "").trim(),
+        "PgMin(MW)": String(cols[pgMinIndex] || "").trim(),
+        "QgMax(MVAr)": String(cols[qgMaxIndex] || "").trim(),
+        "QgMin(MVAr)": String(cols[qgMinIndex] || "").trim(),
+        Violation: String(cols[violationIndex] || "").trim(),
+        __contingency: String(cols[contingencyIndex] || "").trim(),
+        __busId: normalizeBusValue(cols[busIndex]),
+        __machineId: normalizeMachineValue(cols[machineIndex])
+      };
+      return row;
+    });
+
+    caGenRowsCacheBySeason.set(season, rows);
+    return rows;
+  };
+
+  const buildActiveGenRowsByBusId = (rows, contingencyName) => {
+    const byBus = {};
+
+    rows
+      .filter((row) => row.__contingency === contingencyName)
+      .forEach((row) => {
+        const busId = row.__busId;
+        if (!busId) {
+          return;
+        }
+
+        if (!byBus[busId]) {
+          byBus[busId] = {
+            "Pg(MW)": 0,
+            "Qg(MVAr)": 0
+          };
+        }
+
+        const pg = Number(row["Pg(MW)"]);
+        const qg = Number(row["Qg(MVAr)"]);
+
+        if (Number.isFinite(pg)) {
+          byBus[busId]["Pg(MW)"] += pg;
+        }
+        if (Number.isFinite(qg)) {
+          byBus[busId]["Qg(MVAr)"] += qg;
+        }
+      });
+
+    return byBus;
+  };
+
+  const buildActiveGenRowsByBusAndMachine = (rows, contingencyName) => {
+    const out = {};
+
+    rows
+      .filter((row) => row.__contingency === contingencyName)
+      .forEach((row) => {
+        const busId = row.__busId;
+        const machineId = row.__machineId || normalizeMachineValue(row.MachineID);
+        if (!busId || !machineId) {
+          return;
+        }
+
+        out[genBusMachineKey(busId, machineId)] = row;
+      });
+
+    return out;
+  };
+
+  const buildActiveGenRowsListByBus = (rows, contingencyName) => {
+    const out = {};
+
+    rows
+      .filter((row) => row.__contingency === contingencyName)
+      .forEach((row) => {
+        const busId = row.__busId;
+        if (!busId) {
+          return;
+        }
+
+        if (!out[busId]) {
+          out[busId] = [];
+        }
+        out[busId].push(row);
+      });
+
+    return out;
+  };
+
+  const buildActiveFlowRowsByUid = (rows, contingencyName, branchMetaByUid) => {
+    const filtered = rows.filter((row) => row.__contingency === contingencyName);
+
+    const byPair = new Map();
+    const byPairAndCkt = new Map();
+
+    filtered.forEach((row) => {
+      const pairForward = `${row.__fromBus}|${row.__toBus}`;
+      const pairReverse = `${row.__toBus}|${row.__fromBus}`;
+
+      if (!byPair.has(pairForward)) {
+        byPair.set(pairForward, row);
+      }
+      if (!byPair.has(pairReverse)) {
+        byPair.set(pairReverse, row);
+      }
+
+      if (row.__ckt) {
+        byPairAndCkt.set(`${pairForward}|${row.__ckt}`, row);
+        byPairAndCkt.set(`${pairReverse}|${row.__ckt}`, row);
+      }
+    });
+
+    const out = {};
+    Object.entries(branchMetaByUid).forEach(([uid, meta]) => {
+      const pair = `${meta.fromBus}|${meta.toBus}`;
+
+      let row = null;
+      for (const ckt of (meta.cktCandidates || [])) {
+        const match = byPairAndCkt.get(`${pair}|${ckt}`);
+        if (match) {
+          row = match;
+          break;
+        }
+      }
+
+      if (!row) {
+        row = byPair.get(pair) || null;
+      }
+
+      if (row) {
+        out[uid] = row;
+      }
+    });
+
+    return out;
+  };
+
+  const isTrueValue = (value) => {
+    const text = String(value ?? "").trim().toLowerCase();
+    return text === "true" || text === "1" || text === "yes";
+  };
+
+  const truncateTo3 = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return "N/A";
+    }
+    const truncated = Math.trunc(numeric * 100) / 100;
+    return truncated.toFixed(2);
+  };
+
+  const formatMetric = (value, unit) => {
+    const truncated = truncateTo3(value);
+    if (truncated === "N/A") {
+      return truncated;
+    }
+    return `${truncated} ${unit}`;
+  };
+
+  const formatIntegerMetric = (value, unit) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return "N/A";
+    }
+    return `${Math.trunc(numeric)} ${unit}`;
+  };
+
+  const formatLegendLimit = (value, metric) => {
+    if (metric === "loading" || metric === "lineFlow") {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) {
+        return "N/A";
+      }
+      return String(Math.trunc(numeric));
+    }
+    if (metric === "busVoltage") {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) {
+        return "N/A";
+      }
+      return numeric === 0 || numeric === 1 ? String(Math.trunc(numeric)) : truncateTo3(numeric);
+    }
+    return truncateTo3(value);
+  };
+
+  const metricLabel = (metric) => {
+    if (metric === "lineFlow") {
+      return "Active Flow ij (MW)";
+    }
+    if (metric === "busVoltage") {
+      return "Voltage (p.u.)";
+    }
+    if (metric === "genActive") {
+      return "Generator Active P (MW)";
+    }
+    if (metric === "genReactive") {
+      return "Generator Reactive Q (MVAr)";
+    }
+    return "Loading (%)";
+  };
+
+  const metricGradient = (metric, max) => {
+    if (metric === "busVoltage") {
+      return max > 1.1
+        ? "linear-gradient(to top, #ef4444 0%, #facc15 55%, #16a34a 80%, #14532d 100%)"
+        : "linear-gradient(to top, #ef4444 0%, #facc15 50%, #16a34a 100%)";
+    }
+    if (metric === "genActive") {
+      return "linear-gradient(to top, #add8e6 0%, #ef4444 100%)";
+    }
+    if (metric === "genReactive") {
+      return "linear-gradient(to top, #add8e6 0%, #ef4444 100%)";
+    }
+    return "linear-gradient(to top, #add8e6 0%, #ef4444 100%)";
+  };
+
+  const legendSectionHtml = (metric) => {
+    const { min, max } = getMetricRange(metric);
+    const gradient = metricGradient(metric, max);
+    return `
+      <div class="line-color-legend-section">
+        <div class="line-color-legend-title">${esc(metricLabel(metric))}</div>
+        <div class="line-color-legend-scale-wrap">
+          <div class="line-color-legend-max">${esc(formatLegendLimit(max, metric))}</div>
+          <div class="line-color-legend-gradient" style="background:${gradient};"></div>
+          <div class="line-color-legend-min">${esc(formatLegendLimit(min, metric))}</div>
+        </div>
+      </div>
+    `;
+  };
+
+  const refreshLineColorLegend = () => {
+    if (!lineColorLegendElement) {
+      return;
+    }
+
+    const hasLineMetric = !!activeLineMetric;
+    const hasBusMetric = !!isBusVoltageMetricActive;
+    const hasGenMetric = !!activeGeneratorMetric;
+    const shouldShow = currentViewMode === "contingency" && activeContingencyConverged && (hasLineMetric || hasBusMetric || hasGenMetric);
+    lineColorLegendElement.style.display = shouldShow ? "block" : "none";
+
+    if (!shouldShow) {
+      return;
+    }
+
+    const sections = [];
+    if (hasLineMetric) {
+      sections.push(legendSectionHtml(activeLineMetric));
+    }
+    if (hasBusMetric) {
+      sections.push(legendSectionHtml("busVoltage"));
+    }
+    if (hasGenMetric) {
+      sections.push(legendSectionHtml(activeGeneratorMetric));
+    }
+    lineColorLegendElement.innerHTML = sections.join("");
+  };
+
+  const refreshMetricButtonsState = () => {
+    const enabled = !!selectedContingencyUid && !!selectedContingencySeason && activeContingencyConverged;
+
+    if (loadingMetricButton) {
+      loadingMetricButton.disabled = !enabled;
+      loadingMetricButton.classList.toggle("active", activeLineMetric === "loading");
+    }
+
+    if (lineFlowMetricButton) {
+      lineFlowMetricButton.disabled = !enabled;
+      lineFlowMetricButton.classList.toggle("active", activeLineMetric === "lineFlow");
+    }
+
+    if (busVoltageMetricButton) {
+      busVoltageMetricButton.disabled = !enabled;
+      busVoltageMetricButton.classList.toggle("active", isBusVoltageMetricActive);
+    }
+
+    if (genActiveMetricButton) {
+      genActiveMetricButton.disabled = !enabled;
+      genActiveMetricButton.classList.toggle("active", activeGeneratorMetric === "genActive");
+    }
+
+    if (genReactiveMetricButton) {
+      genReactiveMetricButton.disabled = !enabled;
+      genReactiveMetricButton.classList.toggle("active", activeGeneratorMetric === "genReactive");
+    }
+  };
+
+  const contingencyFlowRowToPopupHtml = (row, isSelectedLine) => {
+    const title = isSelectedLine ? "Line in Contingency" : "Line Flow";
+    if (!row) {
+      return `<b>${title}</b><br>No flow data found for this line under the selected contingency.`;
+    }
+
+    const busFrom = normalizeBusValue(row["FromBus#"] || row.__fromBus);
+    const busTo = normalizeBusValue(row["ToBus#"] || row.__toBus);
+    const circuit = String(row.CKT || row.__ckt || "N/A");
+    const violation = String(row.Violation || "N/A");
+
+    const detailRows = [
+      `<b>Bus From:</b> ${esc(busFrom)}`,
+      `<b>Bus To:</b> ${esc(busTo)}`,
+      `<b>Circuit:</b> ${esc(circuit)}`,
+      `<b>Active Flow i-&gt;j:</b> ${esc(formatIntegerMetric(row["Pij(MW)"], "MW"))}`,
+      `<b>Reactive Flow i-&gt;j:</b> ${esc(formatMetric(row["Qij(MVAr)"], "MVAr"))}`,
+      `<b>Rating:</b> ${esc(formatMetric(row.RateA, "MVA"))}`,
+      `<b>Active Losses:</b> ${esc(formatMetric(row["Ploss(MW)"], "MW"))}`,
+      `<b>Reactive Losses:</b> ${esc(formatMetric(row["Qloss(MVAr)"], "MVAr"))}`,
+      `<b>Loading:</b> ${esc(formatIntegerMetric(row["Loading_%"], "%"))}`,
+      `<b>Violation:</b> ${esc(violation)}`
+    ];
+
+    return `<b>${title}</b><br>${detailRows.join("<br>")}`;
+  };
+
+  const createContingencyControl = (branchGeo, lineNameByUid, onSelectionChange, onMetricChange) => {
     const lineOptions = Array.from(new Set((branchGeo.features || [])
       .map((feature) => String((feature && feature.properties && feature.properties.UID) || ""))
       .filter((uid) => uid.length > 0)))
@@ -483,6 +1335,27 @@
         winterOption.value = "winter";
         winterOption.textContent = "Winter";
 
+        const metricButtonsWrap = L.DomUtil.create("div", "contingency-metric-buttons", dropdownWrap);
+        loadingMetricButton = L.DomUtil.create("button", "contingency-metric-btn active", metricButtonsWrap);
+        loadingMetricButton.type = "button";
+        loadingMetricButton.textContent = "Loading";
+
+        lineFlowMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
+        lineFlowMetricButton.type = "button";
+        lineFlowMetricButton.textContent = "Line Flow";
+
+        busVoltageMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
+        busVoltageMetricButton.type = "button";
+        busVoltageMetricButton.textContent = "Bus Voltages";
+
+        genActiveMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
+        genActiveMetricButton.type = "button";
+        genActiveMetricButton.textContent = "Gen Active Power";
+
+        genReactiveMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
+        genReactiveMetricButton.type = "button";
+        genReactiveMetricButton.textContent = "Gen Reactive Power";
+
         const seasonLabel = (season) => {
           if (season === "summer") {
             return "Summer";
@@ -500,7 +1373,7 @@
             }
             const season = contingencySeasonByUid[option.value] || "";
             const baseLabel = lineNameByUid[option.value] || option.value;
-            option.textContent = season ? `${baseLabel} (${seasonLabel(season)})` : baseLabel;
+            option.textContent = season ? `${baseLabel}` : baseLabel;
           });
         };
 
@@ -511,7 +1384,7 @@
             return;
           }
           seasonSelect.disabled = false;
-          seasonSelect.value = contingencySeasonByUid[selectedContingencyUid] || "";
+          seasonSelect.value = contingencySeasonByUid[selectedContingencyUid] || selectedContingencySeason || "";
         };
 
         seasonSelect.disabled = true;
@@ -519,12 +1392,23 @@
         button.addEventListener("click", () => {
           const showing = dropdownWrap.style.display !== "none";
           dropdownWrap.style.display = showing ? "none" : "block";
+          button.classList.toggle("active", !showing);
         });
 
         select.addEventListener("change", () => {
           selectedContingencyUid = select.value;
+
+          // Persist the current season across line changes.
+          if (selectedContingencyUid && selectedContingencySeason && !contingencySeasonByUid[selectedContingencyUid]) {
+            contingencySeasonByUid[selectedContingencyUid] = selectedContingencySeason;
+          }
+
           syncSeasonSelectWithLine();
           refreshLineHighlight();
+          selectedContingencySeason = selectedContingencyUid
+            ? (contingencySeasonByUid[selectedContingencyUid] || selectedContingencySeason || "")
+            : "";
+          onSelectionChange(selectedContingencyUid, selectedContingencySeason);
         });
 
         seasonSelect.addEventListener("change", () => {
@@ -539,10 +1423,38 @@
           }
 
           refreshLineOptionLabels();
+          selectedContingencySeason = contingencySeasonByUid[selectedContingencyUid] || "";
+          onSelectionChange(selectedContingencyUid, selectedContingencySeason);
+        });
+
+        loadingMetricButton.addEventListener("click", () => {
+          activeLineMetric = activeLineMetric === "loading" ? null : "loading";
+          onMetricChange();
+        });
+
+        lineFlowMetricButton.addEventListener("click", () => {
+          activeLineMetric = activeLineMetric === "lineFlow" ? null : "lineFlow";
+          onMetricChange();
+        });
+
+        busVoltageMetricButton.addEventListener("click", () => {
+          isBusVoltageMetricActive = !isBusVoltageMetricActive;
+          onMetricChange();
+        });
+
+        genActiveMetricButton.addEventListener("click", () => {
+          activeGeneratorMetric = activeGeneratorMetric === "genActive" ? null : "genActive";
+          onMetricChange();
+        });
+
+        genReactiveMetricButton.addEventListener("click", () => {
+          activeGeneratorMetric = activeGeneratorMetric === "genReactive" ? null : "genReactive";
+          onMetricChange();
         });
 
         refreshLineOptionLabels();
         syncSeasonSelectWithLine();
+        refreshMetricButtonsState();
 
         L.DomEvent.disableClickPropagation(container);
         L.DomEvent.disableScrollPropagation(container);
@@ -684,6 +1596,256 @@
     ]);
 
     const lineNameByUid = buildLineNameByUid(branchGeo, lineNameRows);
+    const branchMetaByUid = buildBranchMetaByUid(branchGeo);
+
+    const mapContainer = map.getContainer();
+    const statusBanner = document.createElement("div");
+    statusBanner.className = "contingency-status-banner";
+    mapContainer.appendChild(statusBanner);
+    let statusBannerTimer = null;
+
+    lineColorLegendElement = document.createElement("div");
+    lineColorLegendElement.className = "line-color-legend";
+    lineColorLegendElement.style.display = "none";
+    mapContainer.appendChild(lineColorLegendElement);
+
+    const hideStatusBanner = () => {
+      statusBanner.classList.remove("show", "success", "error");
+    };
+
+    const showStatusBanner = (message, type) => {
+      if (statusBannerTimer) {
+        window.clearTimeout(statusBannerTimer);
+      }
+
+      statusBanner.textContent = message;
+      statusBanner.classList.remove("success", "error");
+      statusBanner.classList.add(type, "show");
+
+      statusBannerTimer = window.setTimeout(() => {
+        hideStatusBanner();
+      }, 3000);
+    };
+
+    const refreshOpenLinePopups = () => {
+      if (!linesLayer) {
+        return;
+      }
+
+      linesLayer.eachLayer((layer) => {
+        if (!layer || !layer.isPopupOpen || !layer.getPopup || !layer.isPopupOpen()) {
+          return;
+        }
+
+        const popup = layer.getPopup();
+        if (!popup || !popup.setContent) {
+          return;
+        }
+
+        const feature = layer.feature || {};
+        const uid = String((feature.properties && feature.properties.UID) || "").trim();
+
+        if (currentViewMode === "contingency" && selectedContingencyUid && selectedContingencySeason && activeContingencyConverged) {
+          popup.setContent(contingencyFlowRowToPopupHtml(
+            activeFlowRowsByUid[uid],
+            uid === selectedContingencyUid
+          ));
+        } else {
+          popup.setContent(propertiesToPopupHtml(feature.properties || {}, "Line"));
+        }
+      });
+    };
+
+    const busContingencyPopupHtml = (feature) => {
+      const props = (feature && feature.properties) || {};
+      const busId = normalizeBusValue(props["Bus ID"]);
+      const row = activeBusRowsByBusId[busId];
+
+      if (!row || !(currentViewMode === "contingency" && selectedContingencyUid && selectedContingencySeason && activeContingencyConverged)) {
+        return propertiesToPopupHtml(props, "Bus");
+      }
+
+      const rows = [
+        `<b>Substation:</b> ${esc(String(row.Name || "N/A").trim())}`,
+        `<b>Bus ID:</b> ${esc(busId)}`,
+        `<b>Voltage:</b> ${esc(formatMetric(row["Volt(pu)"], "p.u."))}`,
+        `<b>Angle:</b> ${esc(formatMetric(row["Angle(deg)"], "deg"))}`,
+        `<b>Violation:</b> ${esc(String(row.Violation || "N/A"))}`
+      ];
+
+      return `<b>Substation</b><br>${rows.join("<br>")}`;
+    };
+
+    const refreshOpenBusPopups = () => {
+      if (!busesLayer) {
+        return;
+      }
+
+      busesLayer.eachLayer((layer) => {
+        if (!layer || !layer.isPopupOpen || !layer.getPopup || !layer.isPopupOpen()) {
+          return;
+        }
+
+        const popup = layer.getPopup();
+        if (!popup || !popup.setContent) {
+          return;
+        }
+
+        popup.setContent(busContingencyPopupHtml(layer.feature));
+      });
+    };
+
+    const generatorContingencyRowForFeature = (feature) => {
+      const props = (feature && feature.properties) || {};
+      const busId = normalizeBusValue(
+        props["Bus ID"]
+          ?? props.BusNumber
+          ?? props["Bus Number"]
+          ?? props["Bus#"]
+      );
+      const machineId = normalizeMachineValue(props["Gen ID"] ?? props.MachineID);
+
+      if (!busId || !machineId) {
+        return null;
+      }
+
+      const exact = activeGenRowsByBusAndMachine[genBusMachineKey(busId, machineId)] || null;
+      if (exact) {
+        return exact;
+      }
+
+      const busCandidates = activeGenRowsListByBus[busId] || [];
+      if (!busCandidates.length) {
+        return null;
+      }
+
+      const machineLoose = normalizeMachineLoose(machineId);
+      const looseMatch = busCandidates.find((row) => normalizeMachineLoose(row.MachineID) === machineLoose);
+      if (looseMatch) {
+        return looseMatch;
+      }
+
+      const machineNum = machineNumeric(machineId);
+      if (Number.isFinite(machineNum)) {
+        let bestRow = null;
+        let bestDelta = Number.POSITIVE_INFINITY;
+        busCandidates.forEach((row) => {
+          const candidateNum = machineNumeric(row.MachineID);
+          if (!Number.isFinite(candidateNum)) {
+            return;
+          }
+
+          const delta = Math.abs(candidateNum - machineNum);
+          if (delta < bestDelta) {
+            bestDelta = delta;
+            bestRow = row;
+          }
+        });
+
+        if (bestRow) {
+          return bestRow;
+        }
+      }
+
+      return busCandidates[0] || null;
+    };
+
+    const generatorPopupHtmlForFeature = (feature) => {
+      const contingencyMode = currentViewMode === "contingency"
+        && selectedContingencyUid
+        && selectedContingencySeason
+        && activeContingencyConverged;
+
+      if (!contingencyMode) {
+        return generatorPropertiesToPopupHtml((feature && feature.properties) || {});
+      }
+
+      const row = generatorContingencyRowForFeature(feature);
+      return generatorContingencyPopupHtml(row);
+    };
+
+    const refreshOpenGeneratorPopups = () => {
+      if (!gensLayer) {
+        return;
+      }
+
+      gensLayer.eachLayer((layer) => {
+        if (!layer || !layer.isPopupOpen || !layer.getPopup || !layer.isPopupOpen()) {
+          return;
+        }
+
+        const popup = layer.getPopup();
+        if (!popup || !popup.setContent) {
+          return;
+        }
+
+        popup.setContent(generatorPopupHtmlForFeature(layer.feature));
+      });
+    };
+
+    const applyContingencySelection = async (uid, season) => {
+      if (!uid || !season) {
+        activeFlowRowsByUid = {};
+        activeBusRowsByBusId = {};
+        activeGenRowsByBusId = {};
+        activeGenRowsByBusAndMachine = {};
+        activeGenRowsListByBus = {};
+        activeContingencyConverged = false;
+        hideStatusBanner();
+        refreshMetricButtonsState();
+        refreshLineColorLegend();
+        refreshOpenLinePopups();
+        refreshOpenBusPopups();
+        refreshOpenGeneratorPopups();
+        refreshLineHighlight();
+        refreshBusColors();
+        refreshGeneratorColors();
+        return;
+      }
+
+      const contingencyName = lineNameByUid[uid] || uid;
+      const rows = await readSeasonLineFlowsCsv(season);
+      const busRows = await readSeasonBusCsv(season);
+      const genRows = await readSeasonGenCsv(season);
+      const contingencyRows = rows.filter((row) => row.__contingency === contingencyName);
+      activeContingencyConverged = contingencyRows.length > 0 && contingencyRows.every((row) => isTrueValue(row.Converged));
+
+      if (activeContingencyConverged) {
+        activeFlowRowsByUid = buildActiveFlowRowsByUid(rows, contingencyName, branchMetaByUid);
+        activeBusRowsByBusId = buildActiveBusRowsByBusId(busRows, contingencyName);
+        activeGenRowsByBusId = buildActiveGenRowsByBusId(genRows, contingencyName);
+        activeGenRowsByBusAndMachine = buildActiveGenRowsByBusAndMachine(genRows, contingencyName);
+        activeGenRowsListByBus = buildActiveGenRowsListByBus(genRows, contingencyName);
+        showStatusBanner(`Contingency ${contingencyName} (${season}) is now displayed.`, "success");
+      } else {
+        activeFlowRowsByUid = {};
+        activeBusRowsByBusId = {};
+        activeGenRowsByBusId = {};
+        activeGenRowsByBusAndMachine = {};
+        activeGenRowsListByBus = {};
+        showStatusBanner("System did not converged. Select other contingency and season.", "error");
+      }
+
+      refreshMetricButtonsState();
+      refreshLineColorLegend();
+      refreshLineHighlight();
+      refreshBusColors();
+      refreshGeneratorColors();
+      refreshOpenLinePopups();
+      refreshOpenBusPopups();
+      refreshOpenGeneratorPopups();
+    };
+
+    const applyMetricSelection = () => {
+      refreshMetricButtonsState();
+      refreshLineColorLegend();
+      refreshLineHighlight();
+      refreshBusColors();
+      refreshGeneratorColors();
+      refreshOpenLinePopups();
+      refreshOpenBusPopups();
+      refreshOpenGeneratorPopups();
+    };
 
     const categoryOf = (feature) => ((feature && feature.properties && feature.properties.Category) || "Unknown");
     const uniqueCategories = Array.from(new Set((genGeo.features || []).map(categoryOf))).sort();
@@ -781,11 +1943,22 @@
     linesLayer = L.geoJSON(curvedBranchGeo, {
       style: (feature) => lineStyleForFeature(feature),
       onEachFeature: (feature, layer) => {
-        bindHoverPopup(layer, propertiesToPopupHtml(feature.properties || {}, "Line"));
+        bindHoverPopup(layer, () => {
+          const uid = String(((feature && feature.properties) || {}).UID || "").trim();
+
+          if (currentViewMode === "contingency" && selectedContingencyUid && selectedContingencySeason && activeContingencyConverged) {
+            return contingencyFlowRowToPopupHtml(
+              activeFlowRowsByUid[uid],
+              uid === selectedContingencyUid
+            );
+          }
+
+          return propertiesToPopupHtml(feature.properties || {}, "Line");
+        });
       }
     }).addTo(map);
 
-    createContingencyControl(branchGeo, lineNameByUid);
+    createContingencyControl(branchGeo, lineNameByUid, applyContingencySelection, applyMetricSelection);
 
     genConnLayer = L.geoJSON(genConnGeo, {
       style: () => ({ color: "#000000", weight: 2, opacity: 0.95, dashArray: "6,6" }),
@@ -794,22 +1967,23 @@
       }
     });
 
-    const busesLayer = L.geoJSON(busGeo, {
+    busesLayer = L.geoJSON(busGeo, {
       pointToLayer: (feature, latlng) => {
         const busType = busTypeOf(feature);
         const color = busTypeColor[busType] || "#000000";
 
         return L.marker(latlng, {
+          baseBusColor: color,
           icon: L.divIcon({
             className: "bus-square-icon",
-            html: `<div style="width:12px;height:12px;background:${color};border:1px solid ${color};box-sizing:border-box;position:relative;overflow:hidden;"><span style="position:absolute;left:-2px;top:5px;width:16px;height:1.4px;background:#111;transform:rotate(45deg);transform-origin:center;"></span></div>`,
+            html: busIconHtml(color),
             iconSize: [12, 12],
             iconAnchor: [6, 6]
           })
         });
       },
       onEachFeature: (feature, layer) => {
-        bindHoverPopup(layer, propertiesToPopupHtml(feature.properties || {}, "Bus"));
+        bindHoverPopup(layer, () => busContingencyPopupHtml(feature));
       }
     }).addTo(map);
 
@@ -835,7 +2009,7 @@
         weight: 1
       }),
       onEachFeature: (feature, layer) => {
-        bindHoverPopup(layer, generatorPropertiesToPopupHtml(feature.properties || {}));
+        bindHoverPopup(layer, () => generatorPopupHtmlForFeature(feature));
       }
     }).addTo(map);
 
@@ -852,12 +2026,72 @@
       categoryToLayers[category].push(layer);
     });
 
+    const setGeneratorMarkerColors = (usePurple) => {
+      const purple = "#a855f7";
+
+      gensLayer.eachLayer((layer) => {
+        if (!layer || !layer.setStyle) {
+          return;
+        }
+
+        const category = categoryOf(layer.feature);
+        const color = usePurple ? purple : (categoryColor[category] || "#777777");
+        layer.setStyle({
+          color,
+          fillColor: color
+        });
+      });
+    };
+
+    const refreshGeneratorColors = () => {
+      if (!gensLayer) {
+        return;
+      }
+
+      if (!(currentViewMode === "contingency" && activeContingencyConverged && activeGeneratorMetric)) {
+        setGeneratorMarkerColors(currentViewMode === "contingency");
+        return;
+      }
+
+      const { min, max } = getMetricRange(activeGeneratorMetric);
+      const fallbackColor = colorForMetricValue(min, min, max, activeGeneratorMetric);
+      gensLayer.eachLayer((layer) => {
+        if (!layer || !layer.setStyle) {
+          return;
+        }
+
+        const feature = layer.feature || {};
+        const row = generatorContingencyRowForFeature(feature);
+        const value = getMetricValueForRow(row, activeGeneratorMetric);
+
+        if (!Number.isFinite(value)) {
+          layer.setStyle({
+            color: fallbackColor,
+            fillColor: fallbackColor
+          });
+          return;
+        }
+
+        const metricName = activeGeneratorMetric === "genReactive" ? "genReactive" : "genActive";
+        const color = colorForMetricValue(value, min, max, metricName);
+        layer.setStyle({
+          color,
+          fillColor: color
+        });
+      });
+    };
+
     const legendLine = "<span style=\"display:inline-block;width:16px;height:0;border-top:2px solid #4f81bd;vertical-align:middle;margin-right:6px;\"></span>";
+    const legendArea = "<span style=\"display:inline-block;width:10px;height:10px;background:#9ca3af;border:1px solid #6b7280;vertical-align:middle;margin-right:6px;\"></span>";
+    const legendBus = "<span style=\"display:inline-block;width:12px;height:12px;background:#06b6d4;border:1px solid #0891b2;box-sizing:border-box;vertical-align:middle;margin-right:6px;position:relative;overflow:hidden;\"><span style=\"position:absolute;left:-2px;top:5px;width:16px;height:1.4px;background:#111;transform:rotate(45deg);transform-origin:center;\"></span></span>";
+    const legendGen = "<span style=\"display:inline-block;width:10px;height:10px;background:#a855f7;border:1px solid #7e22ce;border-radius:50%;vertical-align:middle;margin-right:6px;\"></span>";
     const legendGenConn = "<span style=\"display:inline-block;width:16px;height:0;border-top:2px dashed #000000;vertical-align:middle;margin-right:6px;\"></span>";
 
     const overlays = {
-      Areas: areasLayer,
+      [`${legendArea}Areas`]: areasLayer,
       [`${legendLine}Lines`]: linesLayer,
+      [`${legendBus}Buses`]: busesLayer,
+      [`${legendGen}Generators`]: gensLayer,
       [`${legendGenConn}Generator Connections`]: genConnLayer
     };
 
@@ -1054,6 +2288,7 @@
 
     const setViewMode = (mode) => {
       const isContingency = mode === "contingency";
+      currentViewMode = mode;
 
       setTheme(isContingency ? "dark" : "light");
 
@@ -1062,9 +2297,12 @@
       setLayerVisible(areasLayer, !isContingency);
       setLayerVisible(genConnLayer, !isContingency);
 
-      // Default mode = all component data; contingency mode = lines-only focus.
-      setAllGeneratorCategories(!isContingency);
-      setAllBusTypes(!isContingency);
+      // Keep generators visible in both modes; contingency starts with purple generator markers enabled.
+      setAllGeneratorCategories(true);
+      setAllBusTypes(true);
+
+      // Contingency mode uses uniform purple generators; default restores category colors.
+      setGeneratorMarkerColors(isContingency);
 
       if (genLegendElement) {
         genLegendElement.style.display = isContingency ? "none" : "block";
@@ -1076,7 +2314,17 @@
         contingencyControlContainer.style.display = isContingency ? "block" : "none";
       }
 
+      refreshLineColorLegend();
+      refreshLineHighlight();
+      refreshBusColors();
+      refreshGeneratorColors();
+      refreshOpenLinePopups();
+      refreshOpenBusPopups();
+      refreshOpenGeneratorPopups();
+
       setOverlayLegendEntryVisible("Generator Connections", !isContingency);
+      setOverlayLegendEntryVisible("Buses", isContingency);
+      setOverlayLegendEntryVisible("Generators", isContingency);
 
       const defaultTab = document.getElementById("view-mode-default");
       const contingencyTab = document.getElementById("view-mode-contingency");
