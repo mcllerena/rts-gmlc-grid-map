@@ -70,6 +70,7 @@
   let baseCaseGenRowsByBusAndMachine = {};
   let baseCaseGenRowsListByBus = {};
   let baseCaseDataPanelRef = null;
+  let contingencyDataPanelRef = null;
   const popupLayers = [];
   const warning = document.getElementById("map-warning");
 
@@ -1653,6 +1654,11 @@
       genReactiveMetricButton.classList.toggle("active", activeGeneratorMetric === "genReactive");
     }
 
+    const caBtn = createContingencyControl._showDataBtn;
+    if (caBtn) {
+      caBtn.disabled = !enabled;
+    }
+
     // Base case buttons are always enabled when in base case mode
     if (bcLoadingMetricButton) {
       bcLoadingMetricButton.classList.toggle("active", activeBaseCaseLineMetric === "loading");
@@ -1859,6 +1865,19 @@
           activeGeneratorMetric = activeGeneratorMetric === "genReactive" ? null : "genReactive";
           onMetricChange();
         });
+
+        const caShowDataBtn = L.DomUtil.create("button", "bc-show-data-btn", dropdownWrap);
+        caShowDataBtn.type = "button";
+        caShowDataBtn.textContent = "Show Data";
+        caShowDataBtn.disabled = true;
+        caShowDataBtn.addEventListener("click", () => {
+          if (contingencyDataPanelRef) {
+            contingencyDataPanelRef.show();
+          }
+        });
+
+        // Expose so applyContingencySelection can toggle enabled state
+        createContingencyControl._showDataBtn = caShowDataBtn;
 
         refreshLineOptionLabels();
         syncSeasonSelectWithLine();
@@ -2094,6 +2113,313 @@
       throw new Error(`Failed to load ${name}.geojson (${response.status})`);
     }
     return response.json();
+  };
+
+  const createContingencyDataPanel = (mapContainer) => {
+    const makePanel = (titleText, getTabDataFn, tabDefs) => {
+      const overlay = document.createElement("div");
+      overlay.className = "bc-data-panel";
+      overlay.style.display = "none";
+      mapContainer.appendChild(overlay);
+
+      const header = document.createElement("div");
+      header.className = "bc-data-panel-header";
+      overlay.appendChild(header);
+
+      const titleEl = document.createElement("span");
+      titleEl.className = "bc-data-panel-title";
+      titleEl.textContent = titleText;
+      header.appendChild(titleEl);
+
+      const closeBtn = document.createElement("button");
+      closeBtn.className = "bc-data-panel-close";
+      closeBtn.type = "button";
+      closeBtn.title = "Close";
+      closeBtn.textContent = "✕";
+      header.appendChild(closeBtn);
+
+      const tabsBar = document.createElement("div");
+      tabsBar.className = "bc-data-panel-tabs";
+      overlay.appendChild(tabsBar);
+
+      let activeTab = tabDefs[0].key;
+      const tabBtns = {};
+      tabDefs.forEach(({ key, label }) => {
+        const btn = document.createElement("button");
+        btn.className = `bc-data-tab${key === activeTab ? " active" : ""}`;
+        btn.type = "button";
+        btn.textContent = label;
+        tabBtns[key] = btn;
+        tabsBar.appendChild(btn);
+      });
+
+      const searchWrap = document.createElement("div");
+      searchWrap.className = "bc-data-panel-search-wrap";
+      overlay.appendChild(searchWrap);
+
+      const searchInput = document.createElement("input");
+      searchInput.className = "bc-data-panel-search";
+      searchInput.type = "text";
+      searchInput.placeholder = "Filter rows…";
+      searchWrap.appendChild(searchInput);
+
+      const rowCountEl = document.createElement("span");
+      rowCountEl.className = "bc-data-panel-rowcount";
+      searchWrap.appendChild(rowCountEl);
+
+      const tableWrap = document.createElement("div");
+      tableWrap.className = "bc-data-panel-table-wrap";
+      overlay.appendChild(tableWrap);
+
+      let sortCol = -1;
+      let sortAsc = true;
+      let currentRows = [];
+      let currentHeaders = [];
+      let colWidths = {};
+
+      const renderTable = () => {
+        const filter = searchInput.value.trim().toLowerCase();
+        const filtered = filter
+          ? currentRows.filter((row) => row.some((cell) => String(cell).toLowerCase().includes(filter)))
+          : currentRows;
+
+        const sorted = sortCol >= 0
+          ? filtered.slice().sort((a, b) => {
+              const va = a[sortCol];
+              const vb = b[sortCol];
+              const na = Number(va);
+              const nb = Number(vb);
+              const cmp = Number.isFinite(na) && Number.isFinite(nb)
+                ? na - nb
+                : String(va).localeCompare(String(vb));
+              return sortAsc ? cmp : -cmp;
+            })
+          : filtered;
+
+        rowCountEl.textContent = `${sorted.length} row${sorted.length !== 1 ? "s" : ""}`;
+        tableWrap.innerHTML = "";
+
+        const table = document.createElement("table");
+        table.className = "bc-data-table";
+
+        const colgroup = document.createElement("colgroup");
+        currentHeaders.forEach((_, i) => {
+          const col = document.createElement("col");
+          const wk = `${activeTab}:${i}`;
+          if (colWidths[wk]) {
+            col.style.width = `${colWidths[wk]}px`;
+          }
+          colgroup.appendChild(col);
+        });
+        table.appendChild(colgroup);
+
+        const thead = document.createElement("thead");
+        const headRow = document.createElement("tr");
+        currentHeaders.forEach((h, i) => {
+          const th = document.createElement("th");
+          th.style.position = "relative";
+          th.style.whiteSpace = "nowrap";
+          const wk = `${activeTab}:${i}`;
+          if (colWidths[wk]) {
+            th.style.width = `${colWidths[wk]}px`;
+            th.style.minWidth = `${colWidths[wk]}px`;
+            th.style.maxWidth = `${colWidths[wk]}px`;
+          }
+
+          const labelSpan = document.createElement("span");
+          labelSpan.className = "bc-th-label";
+          const sortIndicator = i === sortCol ? (sortAsc ? " ▲" : " ▼") : "";
+          labelSpan.textContent = h + sortIndicator;
+          labelSpan.title = `Sort by ${h}`;
+          labelSpan.addEventListener("click", () => {
+            sortAsc = sortCol === i ? !sortAsc : true;
+            sortCol = i;
+            renderTable();
+          });
+          th.appendChild(labelSpan);
+
+          const grip = document.createElement("div");
+          grip.className = "bc-col-resize-grip";
+          grip.addEventListener("mousedown", (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            const startX = e.clientX;
+            const startW = th.offsetWidth;
+            const onMove = (mv) => {
+              const newW = Math.max(40, startW + (mv.clientX - startX));
+              colWidths[wk] = newW;
+              th.style.width = `${newW}px`;
+              th.style.minWidth = `${newW}px`;
+              th.style.maxWidth = `${newW}px`;
+            };
+            const onUp = () => {
+              document.removeEventListener("mousemove", onMove);
+              document.removeEventListener("mouseup", onUp);
+            };
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
+          });
+          th.appendChild(grip);
+
+          headRow.appendChild(th);
+        });
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement("tbody");
+        sorted.forEach((row) => {
+          const tr = document.createElement("tr");
+          row.forEach((cell) => {
+            const td = document.createElement("td");
+            td.textContent = String(cell);
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        tableWrap.appendChild(table);
+      };
+
+      const switchTab = (tab) => {
+        activeTab = tab;
+        sortCol = -1;
+        sortAsc = true;
+        searchInput.value = "";
+        colWidths = {};
+        tabDefs.forEach(({ key }) => tabBtns[key].classList.toggle("active", key === tab));
+        const data = getTabDataFn(tab);
+        currentHeaders = data.headers;
+        currentRows = data.rows;
+        renderTable();
+      };
+
+      tabDefs.forEach(({ key }) => {
+        tabBtns[key].addEventListener("click", () => switchTab(key));
+      });
+      searchInput.addEventListener("input", () => renderTable());
+      closeBtn.addEventListener("click", () => { overlay.style.display = "none"; });
+
+      overlay.addEventListener("wheel", (e) => e.stopPropagation(), { passive: true });
+      overlay.addEventListener("dblclick", (e) => e.stopPropagation());
+
+      const resizeHandle = document.createElement("div");
+      resizeHandle.className = "bc-data-panel-resize";
+      overlay.appendChild(resizeHandle);
+      resizeHandle.addEventListener("mousedown", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const startW = overlay.offsetWidth;
+        const startH = overlay.offsetHeight;
+        const onMove = (mv) => {
+          overlay.style.width = `${Math.max(420, startW + (mv.clientX - startX))}px`;
+          overlay.style.height = `${Math.max(280, startH + (mv.clientY - startY))}px`;
+        };
+        const onUp = () => {
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+        };
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+
+      header.addEventListener("mousedown", (e) => {
+        if (e.target === closeBtn) return;
+        e.stopPropagation();
+        e.preventDefault();
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const startLeft = overlay.offsetLeft;
+        const startTop = overlay.offsetTop;
+        overlay.classList.add("is-dragging");
+        const onMove = (mv) => {
+          overlay.style.left = `${startLeft + (mv.clientX - startX)}px`;
+          overlay.style.top = `${startTop + (mv.clientY - startY)}px`;
+        };
+        const onUp = () => {
+          overlay.classList.remove("is-dragging");
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+        };
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+
+      overlay.addEventListener("mousedown", (e) => e.stopPropagation());
+
+      return {
+        show(tab) {
+          overlay.style.transform = "";
+          overlay.style.display = "flex";
+          const parentW = mapContainer.offsetWidth;
+          const panelW = overlay.offsetWidth;
+          overlay.style.left = `${Math.max(0, Math.round((parentW - panelW) / 2))}px`;
+          overlay.style.top = "52px";
+          switchTab(tab || activeTab);
+        },
+        hide() { overlay.style.display = "none"; },
+        refresh() {
+          if (overlay.style.display !== "none") switchTab(activeTab);
+        }
+      };
+    };
+
+    const fmt2 = (v) => { const n = Number(v); return Number.isFinite(n) ? n.toFixed(2) : (v || "N/A"); };
+    const fmt1 = (v) => { const n = Number(v); return Number.isFinite(n) ? n.toFixed(1) : (v || "N/A"); };
+    const fmt4 = (v) => { const n = Number(v); return Number.isFinite(n) ? n.toFixed(4) : (v || "N/A"); };
+
+    const getTabData = (tab) => {
+      if (tab === "lines") {
+        const headers = ["From Bus", "To Bus", "CKT", "Contingency", "Pij (MW)", "Qij (MVAr)", "Rate A (MVA)", "Loading (%)", "Violation", "Converged"];
+        const rows = Object.entries(activeFlowRowsByUid).map(([uid, r]) => [
+          r.__fromBus || r["FromBus#"] || "",
+          r.__toBus || r["ToBus#"] || "",
+          r.__ckt || r.CKT || "",
+          r.__contingency || "",
+          fmt2(r["Pij(MW)"]),
+          fmt2(r["Qij(MVAr)"]),
+          fmt1(r.RateA),
+          fmt1(r["Loading_%"]),
+          r.Violation || "N/A",
+          r.Converged || "N/A"
+        ]);
+        return { headers, rows };
+      }
+      if (tab === "buses") {
+        const headers = ["Bus #", "Name", "Contingency", "Volt (p.u.)", "Angle (deg)", "Violation"];
+        const rows = Object.values(activeBusRowsByBusId).map((r) => [
+          r.__busId || r["Bus#"] || "",
+          (r.Name || "").trim(),
+          r.__contingency || "",
+          fmt4(r["Volt(pu)"]),
+          fmt2(r["Angle(deg)"]),
+          r.Violation || "N/A"
+        ]);
+        return { headers, rows };
+      }
+      // gens
+      const headers = ["Bus #", "Machine ID", "Contingency", "Pg (MW)", "Qg (MVAr)", "PgMax (MW)", "PgMin (MW)", "QgMax (MVAr)", "QgMin (MVAr)", "Violation"];
+      const rows = Object.values(activeGenRowsByBusAndMachine).map((r) => [
+        r.__busId || "",
+        r.MachineID || "",
+        r.__contingency || "",
+        fmt2(r["Pg(MW)"]),
+        fmt2(r["Qg(MVAr)"]),
+        fmt2(r["PgMax(MW)"]),
+        fmt2(r["PgMin(MW)"]),
+        fmt2(r["QgMax(MVAr)"]),
+        fmt2(r["QgMin(MVAr)"]),
+        r.Violation || "N/A"
+      ]);
+      return { headers, rows };
+    };
+
+    return makePanel("Contingency Analysis Results", getTabData, [
+      { key: "lines", label: "Lines" },
+      { key: "buses", label: "Buses" },
+      { key: "gens", label: "Generators" }
+    ]);
   };
 
   const createBaseCaseDataPanel = (mapContainer) => {
@@ -2763,6 +3089,9 @@
       refreshOpenLinePopups();
       refreshOpenBusPopups();
       refreshOpenGeneratorPopups();
+      if (contingencyDataPanelRef) {
+        contingencyDataPanelRef.refresh();
+      }
     };
 
     const applyMetricSelection = () => {
@@ -2928,6 +3257,7 @@
     }).addTo(map);
 
     createContingencyControl(branchGeo, lineNameByUid, applyContingencySelection, applyMetricSelection);
+    contingencyDataPanelRef = createContingencyDataPanel(map.getContainer());
     createBaseCaseControl(applyBaseCaseSeasonChange, applyBaseCaseMetricSelection);
 
     // Pre-load default base case season data
