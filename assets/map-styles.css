@@ -426,3 +426,330 @@ body.dark-mode .line-color-legend-gradient {
   flex: 0 0 auto;
   box-sizing: border-box;
 }
+
+/* ---- Base Case Show Data button ---- */
+.bc-show-data-btn {
+  width: 100%;
+  margin-top: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 6px;
+  padding: 7px 8px;
+  font: 700 12px/1.2 sans-serif;
+  background: #e0f2fe;
+  color: #0369a1;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.bc-show-data-btn:hover {
+  background: #bae6fd;
+}
+
+body.dark-mode .bc-show-data-btn {
+  background: #0c4a6e;
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #bae6fd;
+}
+
+body.dark-mode .bc-show-data-btn:hover {
+  background: #075985;
+}
+
+/* ---- Base Case Data Panel ---- */
+.bc-data-panel {
+  position: absolute;
+  z-index: 1200;
+  width: min(960px, 94vw);
+  min-width: 420px;
+  min-height: 280px;
+  height: 72vh;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+}
+
+.bc-data-panel.is-dragging {
+  opacity: 0.92;
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.38);
+  user-select: none;
+}
+
+.bc-data-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
+  cursor: grab;
+}
+
+.bc-data-panel-header:active {
+  cursor: grabbing;
+}
+
+.bc-data-panel-title {
+  font: 700 13px/1.2 sans-serif;
+  color: #111827;
+}
+
+.bc-data-panel-close {
+  border: 0;
+  background: none;
+  font-size: 15px;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 2px 7px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.bc-data-panel-close:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.bc-data-panel-tabs {
+  display: flex;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
+}
+
+.bc-data-tab {
+  flex: 1;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  padding: 8px 14px;
+  font: 700 12px/1.2 sans-serif;
+  background: none;
+  color: #6b7280;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.bc-data-tab:hover {
+  color: #374151;
+  background: #f9fafb;
+}
+
+.bc-data-tab.active {
+  color: #14532d;
+  border-bottom-color: #16a34a;
+  background: #f0fdf4;
+}
+
+.bc-data-panel-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+}
+
+.bc-data-panel-search {
+  flex: 1;
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: 12px/1.2 sans-serif;
+  background: #f9fafb;
+  color: #111827;
+  outline: none;
+}
+
+.bc-data-panel-search:focus {
+  border-color: #16a34a;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.18);
+}
+
+.bc-data-panel-rowcount {
+  font: 11px/1.2 sans-serif;
+  color: #6b7280;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.bc-data-panel-table-wrap {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.bc-data-panel-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: se-resize;
+  z-index: 1;
+}
+
+.bc-data-panel-resize::after {
+  content: "";
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid rgba(0, 0, 0, 0.35);
+  border-bottom: 2px solid rgba(0, 0, 0, 0.35);
+  border-radius: 0 0 2px 0;
+}
+
+body.dark-mode .bc-data-panel-resize::after {
+  border-right-color: rgba(255, 255, 255, 0.35);
+  border-bottom-color: rgba(255, 255, 255, 0.35);
+}
+
+.bc-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font: 12px/1.4 sans-serif;
+  table-layout: fixed;
+}
+
+.bc-data-table th {
+  position: sticky;
+  top: 0;
+  background: #f3f4f6;
+  color: #111827;
+  font-weight: 700;
+  padding: 7px 24px 7px 12px;
+  text-align: center;
+  border-bottom: 2px solid rgba(0, 0, 0, 0.12);
+  white-space: nowrap;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.bc-th-label {
+  cursor: pointer;
+  user-select: none;
+  display: inline-block;
+}
+
+.bc-th-label:hover {
+  text-decoration: underline dotted;
+}
+
+.bc-col-resize-grip {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 1;
+}
+
+.bc-col-resize-grip:hover,
+.bc-col-resize-grip:active {
+  background: rgba(22, 163, 74, 0.4);
+}
+
+.bc-data-table th:hover {
+  background: #e5e7eb;
+}
+
+.bc-data-table td {
+  padding: 5px 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  color: #374151;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.bc-data-table tbody tr:hover td {
+  background: #f0fdf4;
+}
+
+/* Dark mode panel */
+body.dark-mode .bc-data-panel {
+  background: #1b2230;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+body.dark-mode .bc-data-panel-header {
+  border-bottom-color: rgba(255, 255, 255, 0.12);
+}
+
+body.dark-mode .bc-data-panel-title {
+  color: #f3f4f6;
+}
+
+body.dark-mode .bc-data-panel-close {
+  color: #9ca3af;
+}
+
+body.dark-mode .bc-data-panel-close:hover {
+  background: #374151;
+  color: #f3f4f6;
+}
+
+body.dark-mode .bc-data-panel-tabs {
+  border-bottom-color: rgba(255, 255, 255, 0.12);
+}
+
+body.dark-mode .bc-data-tab {
+  color: #9ca3af;
+}
+
+body.dark-mode .bc-data-tab:hover {
+  color: #e5e7eb;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+body.dark-mode .bc-data-tab.active {
+  color: #86efac;
+  border-bottom-color: #22c55e;
+  background: rgba(134, 239, 172, 0.08);
+}
+
+body.dark-mode .bc-data-panel-search-wrap {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+body.dark-mode .bc-data-panel-search {
+  background: #0f172a;
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #e5e7eb;
+}
+
+body.dark-mode .bc-data-panel-search:focus {
+  border-color: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+}
+
+body.dark-mode .bc-data-panel-rowcount {
+  color: #6b7280;
+}
+
+body.dark-mode .bc-data-table th {
+  background: #111827;
+  color: #f3f4f6;
+  border-bottom-color: rgba(255, 255, 255, 0.15);
+}
+
+body.dark-mode .bc-data-table th:hover {
+  background: #1f2937;
+}
+
+body.dark-mode .bc-col-resize-grip:hover,
+body.dark-mode .bc-col-resize-grip:active {
+  background: rgba(134, 239, 172, 0.5);
+}
+
+body.dark-mode .bc-data-table td {
+  color: #d1d5db;
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+body.dark-mode .bc-data-table tbody tr:hover td {
+  background: rgba(134, 239, 172, 0.06);
+}
