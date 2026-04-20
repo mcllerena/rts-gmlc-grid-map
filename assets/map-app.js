@@ -50,6 +50,25 @@
   let activeGenRowsByBusId = {};
   let activeGenRowsByBusAndMachine = {};
   let activeGenRowsListByBus = {};
+
+  // Base case state
+  let baseCaseControlContainer = null;
+  let selectedBaseCaseSeason = "summer";
+  let activeBaseCaseLineMetric = "loading";
+  let isBaseCaseBusVoltageMetricActive = false;
+  let activeBaseCaseGeneratorMetric = null;
+  let bcLoadingMetricButton = null;
+  let bcLineFlowMetricButton = null;
+  let bcBusVoltageMetricButton = null;
+  let bcGenActiveMetricButton = null;
+  let bcGenReactiveMetricButton = null;
+  const baseCaseLineRowsCacheBySeason = new Map();
+  const baseCaseBusRowsCacheBySeason = new Map();
+  const baseCaseGenRowsCacheBySeason = new Map();
+  let baseCaseFlowRowsByUid = {};
+  let baseCaseBusRowsByBusId = {};
+  let baseCaseGenRowsByBusAndMachine = {};
+  let baseCaseGenRowsListByBus = {};
   const popupLayers = [];
   const warning = document.getElementById("map-warning");
 
@@ -361,6 +380,23 @@
       }
     }
 
+    if (currentViewMode === "baseCase" && (activeBaseCaseLineMetric === "loading" || activeBaseCaseLineMetric === "lineFlow")) {
+      const row = baseCaseFlowRowsByUid[uid];
+      const value = getMetricValueForRow(row, activeBaseCaseLineMetric);
+      if (Number.isFinite(value)) {
+        const sourceRows = Object.values(baseCaseFlowRowsByUid);
+        const values = sourceRows.map((r) => getMetricValueForRow(r, activeBaseCaseLineMetric)).filter((v) => Number.isFinite(v));
+        const min = values.length ? Math.floor(Math.min(...values)) : 0;
+        const max = values.length ? Math.ceil(Math.max(...values)) : 1;
+        return {
+          color: colorForMetricValue(value, min, max, activeBaseCaseLineMetric),
+          weight: 3.2,
+          opacity: 0.95,
+          dashArray: ""
+        };
+      }
+    }
+
     if (selectedContingencyUid && uid === selectedContingencyUid) {
       return contingencyLineStyle;
     }
@@ -402,6 +438,17 @@
         const value = getMetricValueForBusId(busId, "busVoltage");
         if (Number.isFinite(value)) {
           color = colorForMetricValue(value, voltageRange.min, voltageRange.max, "busVoltage");
+        }
+      }
+
+      if (currentViewMode === "baseCase" && isBaseCaseBusVoltageMetricActive) {
+        const row = baseCaseBusRowsByBusId[busId];
+        const value = row ? Number(row["Volt(pu)"]) : Number.NaN;
+        if (Number.isFinite(value)) {
+          const bcValues = Object.values(baseCaseBusRowsByBusId).map((r) => Number(r["Volt(pu)"])).filter((v) => Number.isFinite(v));
+          const bcMin = bcValues.length ? Math.min(...bcValues) : 0;
+          const bcMax = bcValues.length ? Math.max(...bcValues) : 1;
+          color = colorForMetricValue(value, bcMin, bcMax, "busVoltage");
         }
       }
 
@@ -1112,6 +1159,308 @@
     return out;
   };
 
+  // ---- Base Case CSV readers ----
+
+  const getBaseCaseLineCsvPath = (season) => {
+    if (season === "summer") {
+      return "./ca_results/summer/rts_gmlc_export_13_40_summer_v35_base_acpf_lines.csv";
+    }
+    return "./ca_results/winter/rts_gmlc_export_10_43_winter_v35_base_acpf_lines.csv";
+  };
+
+  const readBaseCaseLinesCsv = async (season) => {
+    if (!season) {
+      return [];
+    }
+
+    if (baseCaseLineRowsCacheBySeason.has(season)) {
+      return baseCaseLineRowsCacheBySeason.get(season);
+    }
+
+    let text = "";
+    try {
+      const response = await fetch(getBaseCaseLineCsvPath(season), { cache: "no-cache" });
+      if (response.ok) {
+        text = await response.text();
+      }
+    } catch (_error) {
+      // ignore
+    }
+
+    if (!text) {
+      baseCaseLineRowsCacheBySeason.set(season, []);
+      return [];
+    }
+
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+    if (!lines.length) {
+      baseCaseLineRowsCacheBySeason.set(season, []);
+      return [];
+    }
+
+    const header = parseCsvLine(lines[0]);
+    const fromBusIndex = header.indexOf("FromBus#");
+    const toBusIndex = header.indexOf("ToBus#");
+    const cktIndex = header.indexOf("CKT");
+    const pijIndex = header.indexOf("Pij(MW)");
+    const qijIndex = header.indexOf("Qij(MVAr)");
+    const sijIndex = header.indexOf("Sij(MVA)");
+    const rateAIndex = header.indexOf("RateA");
+    const plossIndex = header.indexOf("Ploss(MW)");
+    const qlossIndex = header.indexOf("Qloss(MVAr)");
+
+    if (fromBusIndex < 0 || toBusIndex < 0 || cktIndex < 0) {
+      baseCaseLineRowsCacheBySeason.set(season, []);
+      return [];
+    }
+
+    const rows = lines.slice(1).map((line) => {
+      const cols = parseCsvLine(line);
+      const pij = String(cols[pijIndex] || "").trim();
+      const rateA = String(cols[rateAIndex] || "").trim();
+      const sijVal = String(cols[sijIndex] || "").trim();
+      const loadingPct = (Number.isFinite(Number(sijVal)) && Number.isFinite(Number(rateA)) && Number(rateA) !== 0)
+        ? String(Math.abs(Number(sijVal)) / Number(rateA) * 100)
+        : "";
+      return {
+        "FromBus#": String(cols[fromBusIndex] || "").trim(),
+        "ToBus#": String(cols[toBusIndex] || "").trim(),
+        CKT: String(cols[cktIndex] || "").trim(),
+        "Pij(MW)": pij,
+        "Qij(MVAr)": String(cols[qijIndex] || "").trim(),
+        "Sij(MVA)": sijVal,
+        RateA: rateA,
+        "Ploss(MW)": String(cols[plossIndex] || "").trim(),
+        "Qloss(MVAr)": String(cols[qlossIndex] || "").trim(),
+        "Loading_%": loadingPct,
+        __fromBus: normalizeBusValue(cols[fromBusIndex]),
+        __toBus: normalizeBusValue(cols[toBusIndex]),
+        __ckt: normalizeCktValue(cols[cktIndex])
+      };
+    });
+
+    baseCaseLineRowsCacheBySeason.set(season, rows);
+    return rows;
+  };
+
+  const getBaseCaseBusCsvPath = (season) => {
+    if (season === "summer") {
+      return "./ca_results/summer/rts_gmlc_export_13_40_summer_v35_base_acpf_buses.csv";
+    }
+    return "./ca_results/winter/rts_gmlc_export_10_43_winter_v35_base_acpf_buses.csv";
+  };
+
+  const readBaseCaseBusCsv = async (season) => {
+    if (!season) {
+      return [];
+    }
+
+    if (baseCaseBusRowsCacheBySeason.has(season)) {
+      return baseCaseBusRowsCacheBySeason.get(season);
+    }
+
+    let text = "";
+    try {
+      const response = await fetch(getBaseCaseBusCsvPath(season), { cache: "no-cache" });
+      if (response.ok) {
+        text = await response.text();
+      }
+    } catch (_error) {
+      // ignore
+    }
+
+    if (!text) {
+      baseCaseBusRowsCacheBySeason.set(season, []);
+      return [];
+    }
+
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+    if (!lines.length) {
+      baseCaseBusRowsCacheBySeason.set(season, []);
+      return [];
+    }
+
+    const header = parseCsvLine(lines[0]);
+    const busIndex = header.indexOf("Bus#");
+    const nameIndex = header.indexOf("Name");
+    const voltPuIndex = header.indexOf("Volt(pu)");
+    const angleIndex = header.indexOf("Angle(deg)");
+
+    if (busIndex < 0 || voltPuIndex < 0) {
+      baseCaseBusRowsCacheBySeason.set(season, []);
+      return [];
+    }
+
+    const rows = lines.slice(1).map((line) => {
+      const cols = parseCsvLine(line);
+      return {
+        "Bus#": String(cols[busIndex] || "").trim(),
+        Name: nameIndex >= 0 ? String(cols[nameIndex] || "").trim() : "",
+        "Volt(pu)": String(cols[voltPuIndex] || "").trim(),
+        "Angle(deg)": angleIndex >= 0 ? String(cols[angleIndex] || "").trim() : "",
+        __busId: normalizeBusValue(cols[busIndex])
+      };
+    });
+
+    baseCaseBusRowsCacheBySeason.set(season, rows);
+    return rows;
+  };
+
+  const getBaseCaseGenCsvPath = (season) => {
+    if (season === "summer") {
+      return "./ca_results/summer/rts_gmlc_export_13_40_summer_v35_base_acpf_gens.csv";
+    }
+    return "./ca_results/winter/rts_gmlc_export_10_43_winter_v35_base_acpf_gens.csv";
+  };
+
+  const readBaseCaseGenCsv = async (season) => {
+    if (!season) {
+      return [];
+    }
+
+    if (baseCaseGenRowsCacheBySeason.has(season)) {
+      return baseCaseGenRowsCacheBySeason.get(season);
+    }
+
+    let text = "";
+    try {
+      const response = await fetch(getBaseCaseGenCsvPath(season), { cache: "no-cache" });
+      if (response.ok) {
+        text = await response.text();
+      }
+    } catch (_error) {
+      // ignore
+    }
+
+    if (!text) {
+      baseCaseGenRowsCacheBySeason.set(season, []);
+      return [];
+    }
+
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+    if (!lines.length) {
+      baseCaseGenRowsCacheBySeason.set(season, []);
+      return [];
+    }
+
+    const header = parseCsvLine(lines[0]);
+    const busIndex = header.indexOf("BusNumber");
+    const machineIndex = header.indexOf("MachineID");
+    const pgIndex = header.indexOf("Pg(MW)");
+    const qgIndex = header.indexOf("Qg(MVAr)");
+    const pgMaxIndex = header.indexOf("PgMax(MW)");
+    const pgMinIndex = header.indexOf("PgMin(MW)");
+    const qgMaxIndex = header.indexOf("QgMax(MVAr)");
+    const qgMinIndex = header.indexOf("QgMin(MVAr)");
+
+    if (busIndex < 0 || machineIndex < 0 || pgIndex < 0 || qgIndex < 0) {
+      baseCaseGenRowsCacheBySeason.set(season, []);
+      return [];
+    }
+
+    const rows = lines.slice(1).map((line) => {
+      const cols = parseCsvLine(line);
+      return {
+        MachineID: String(cols[machineIndex] || "").trim(),
+        "Pg(MW)": String(cols[pgIndex] || "").trim(),
+        "Qg(MVAr)": String(cols[qgIndex] || "").trim(),
+        "PgMax(MW)": pgMaxIndex >= 0 ? String(cols[pgMaxIndex] || "").trim() : "",
+        "PgMin(MW)": pgMinIndex >= 0 ? String(cols[pgMinIndex] || "").trim() : "",
+        "QgMax(MVAr)": qgMaxIndex >= 0 ? String(cols[qgMaxIndex] || "").trim() : "",
+        "QgMin(MVAr)": qgMinIndex >= 0 ? String(cols[qgMinIndex] || "").trim() : "",
+        Violation: "",
+        __busId: normalizeBusValue(cols[busIndex]),
+        __machineId: normalizeMachineValue(cols[machineIndex])
+      };
+    });
+
+    baseCaseGenRowsCacheBySeason.set(season, rows);
+    return rows;
+  };
+
+  const buildBaseCaseFlowRowsByUid = (rows, branchMeta) => {
+    const byPair = new Map();
+    const byPairAndCkt = new Map();
+
+    rows.forEach((row) => {
+      const pairForward = `${row.__fromBus}|${row.__toBus}`;
+      const pairReverse = `${row.__toBus}|${row.__fromBus}`;
+
+      if (!byPair.has(pairForward)) {
+        byPair.set(pairForward, row);
+      }
+      if (!byPair.has(pairReverse)) {
+        byPair.set(pairReverse, row);
+      }
+
+      if (row.__ckt) {
+        byPairAndCkt.set(`${pairForward}|${row.__ckt}`, row);
+        byPairAndCkt.set(`${pairReverse}|${row.__ckt}`, row);
+      }
+    });
+
+    const out = {};
+    Object.entries(branchMeta).forEach(([uid, meta]) => {
+      const pair = `${meta.fromBus}|${meta.toBus}`;
+      let row = null;
+
+      for (const ckt of (meta.cktCandidates || [])) {
+        const match = byPairAndCkt.get(`${pair}|${ckt}`);
+        if (match) {
+          row = match;
+          break;
+        }
+      }
+
+      if (!row) {
+        row = byPair.get(pair) || null;
+      }
+
+      if (row) {
+        out[uid] = row;
+      }
+    });
+
+    return out;
+  };
+
+  const buildBaseCaseBusRowsByBusId = (rows) => {
+    const out = {};
+    rows.forEach((row) => {
+      if (row.__busId) {
+        out[row.__busId] = row;
+      }
+    });
+    return out;
+  };
+
+  const buildBaseCaseGenRowsByBusAndMachine = (rows) => {
+    const out = {};
+    rows.forEach((row) => {
+      const busId = row.__busId;
+      const machineId = row.__machineId;
+      if (busId && machineId) {
+        out[genBusMachineKey(busId, machineId)] = row;
+      }
+    });
+    return out;
+  };
+
+  const buildBaseCaseGenRowsListByBus = (rows) => {
+    const out = {};
+    rows.forEach((row) => {
+      const busId = row.__busId;
+      if (!busId) {
+        return;
+      }
+      if (!out[busId]) {
+        out[busId] = [];
+      }
+      out[busId].push(row);
+    });
+    return out;
+  };
+
   const isTrueValue = (value) => {
     const text = String(value ?? "").trim().toLowerCase();
     return text === "true" || text === "1" || text === "yes";
@@ -1206,6 +1555,25 @@
     `;
   };
 
+  const legendSectionHtmlForRows = (metric, rows) => {
+    const values = rows
+      .map((row) => getMetricValueForRow(row, metric))
+      .filter((v) => Number.isFinite(v));
+    const min = values.length ? (metric === "busVoltage" ? Math.min(...values) : Math.floor(Math.min(...values))) : 0;
+    const max = values.length ? (metric === "busVoltage" ? Math.max(...values) : Math.ceil(Math.max(...values))) : 1;
+    const gradient = metricGradient(metric, max);
+    return `
+      <div class="line-color-legend-section">
+        <div class="line-color-legend-title">${esc(metricLabel(metric))}</div>
+        <div class="line-color-legend-scale-wrap">
+          <div class="line-color-legend-max">${esc(formatLegendLimit(max, metric))}</div>
+          <div class="line-color-legend-gradient" style="background:${gradient};"></div>
+          <div class="line-color-legend-min">${esc(formatLegendLimit(min, metric))}</div>
+        </div>
+      </div>
+    `;
+  };
+
   const refreshLineColorLegend = () => {
     if (!lineColorLegendElement) {
       return;
@@ -1214,10 +1582,32 @@
     const hasLineMetric = !!activeLineMetric;
     const hasBusMetric = !!isBusVoltageMetricActive;
     const hasGenMetric = !!activeGeneratorMetric;
-    const shouldShow = currentViewMode === "contingency" && activeContingencyConverged && (hasLineMetric || hasBusMetric || hasGenMetric);
+    const shouldShowContingency = currentViewMode === "contingency" && activeContingencyConverged && (hasLineMetric || hasBusMetric || hasGenMetric);
+
+    const hasBcLineMetric = !!activeBaseCaseLineMetric;
+    const hasBcBusMetric = !!isBaseCaseBusVoltageMetricActive;
+    const hasBcGenMetric = !!activeBaseCaseGeneratorMetric;
+    const shouldShowBaseCase = currentViewMode === "baseCase" && (hasBcLineMetric || hasBcBusMetric || hasBcGenMetric);
+
+    const shouldShow = shouldShowContingency || shouldShowBaseCase;
     lineColorLegendElement.style.display = shouldShow ? "block" : "none";
 
     if (!shouldShow) {
+      return;
+    }
+
+    if (shouldShowBaseCase) {
+      const sections = [];
+      if (hasBcLineMetric) {
+        sections.push(legendSectionHtmlForRows(activeBaseCaseLineMetric, Object.values(baseCaseFlowRowsByUid)));
+      }
+      if (hasBcBusMetric) {
+        sections.push(legendSectionHtmlForRows("busVoltage", Object.values(baseCaseBusRowsByBusId)));
+      }
+      if (hasBcGenMetric) {
+        sections.push(legendSectionHtmlForRows(activeBaseCaseGeneratorMetric, Object.values(baseCaseGenRowsByBusAndMachine)));
+      }
+      lineColorLegendElement.innerHTML = sections.join("");
       return;
     }
 
@@ -1260,6 +1650,23 @@
     if (genReactiveMetricButton) {
       genReactiveMetricButton.disabled = !enabled;
       genReactiveMetricButton.classList.toggle("active", activeGeneratorMetric === "genReactive");
+    }
+
+    // Base case buttons are always enabled when in base case mode
+    if (bcLoadingMetricButton) {
+      bcLoadingMetricButton.classList.toggle("active", activeBaseCaseLineMetric === "loading");
+    }
+    if (bcLineFlowMetricButton) {
+      bcLineFlowMetricButton.classList.toggle("active", activeBaseCaseLineMetric === "lineFlow");
+    }
+    if (bcBusVoltageMetricButton) {
+      bcBusVoltageMetricButton.classList.toggle("active", isBaseCaseBusVoltageMetricActive);
+    }
+    if (bcGenActiveMetricButton) {
+      bcGenActiveMetricButton.classList.toggle("active", activeBaseCaseGeneratorMetric === "genActive");
+    }
+    if (bcGenReactiveMetricButton) {
+      bcGenReactiveMetricButton.classList.toggle("active", activeBaseCaseGeneratorMetric === "genReactive");
     }
   };
 
@@ -1465,6 +1872,99 @@
     map.addControl(new ContingencyControl());
   };
 
+  const createBaseCaseControl = (onSeasonChange, onMetricChange) => {
+    const BaseCaseControl = L.Control.extend({
+      options: { position: "topleft" },
+      onAdd() {
+        const container = L.DomUtil.create("div", "contingency-control leaflet-bar");
+        baseCaseControlContainer = container;
+        const panel = L.DomUtil.create("div", "contingency-panel", container);
+
+        const button = L.DomUtil.create("button", "contingency-toggle-btn active", panel);
+        button.type = "button";
+        button.textContent = "Base Case";
+        button.title = "Show base case controls";
+
+        const dropdownWrap = L.DomUtil.create("div", "contingency-dropdown-wrap", panel);
+        dropdownWrap.style.display = "block";
+
+        const seasonSelect = L.DomUtil.create("select", "contingency-select contingency-season-select", dropdownWrap);
+        const summerOption = L.DomUtil.create("option", "", seasonSelect);
+        summerOption.value = "summer";
+        summerOption.textContent = "Summer";
+        const winterOption = L.DomUtil.create("option", "", seasonSelect);
+        winterOption.value = "winter";
+        winterOption.textContent = "Winter";
+        seasonSelect.value = selectedBaseCaseSeason;
+
+        const metricButtonsWrap = L.DomUtil.create("div", "contingency-metric-buttons", dropdownWrap);
+
+        bcLoadingMetricButton = L.DomUtil.create("button", "contingency-metric-btn active", metricButtonsWrap);
+        bcLoadingMetricButton.type = "button";
+        bcLoadingMetricButton.textContent = "Loading";
+
+        bcLineFlowMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
+        bcLineFlowMetricButton.type = "button";
+        bcLineFlowMetricButton.textContent = "Line Flow";
+
+        bcBusVoltageMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
+        bcBusVoltageMetricButton.type = "button";
+        bcBusVoltageMetricButton.textContent = "Bus Voltages";
+
+        bcGenActiveMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
+        bcGenActiveMetricButton.type = "button";
+        bcGenActiveMetricButton.textContent = "Gen Active Power";
+
+        bcGenReactiveMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
+        bcGenReactiveMetricButton.type = "button";
+        bcGenReactiveMetricButton.textContent = "Gen Reactive Power";
+
+        button.addEventListener("click", () => {
+          const showing = dropdownWrap.style.display !== "none";
+          dropdownWrap.style.display = showing ? "none" : "block";
+          button.classList.toggle("active", !showing);
+        });
+
+        seasonSelect.addEventListener("change", () => {
+          selectedBaseCaseSeason = seasonSelect.value;
+          onSeasonChange(selectedBaseCaseSeason);
+        });
+
+        bcLoadingMetricButton.addEventListener("click", () => {
+          activeBaseCaseLineMetric = activeBaseCaseLineMetric === "loading" ? null : "loading";
+          onMetricChange();
+        });
+
+        bcLineFlowMetricButton.addEventListener("click", () => {
+          activeBaseCaseLineMetric = activeBaseCaseLineMetric === "lineFlow" ? null : "lineFlow";
+          onMetricChange();
+        });
+
+        bcBusVoltageMetricButton.addEventListener("click", () => {
+          isBaseCaseBusVoltageMetricActive = !isBaseCaseBusVoltageMetricActive;
+          onMetricChange();
+        });
+
+        bcGenActiveMetricButton.addEventListener("click", () => {
+          activeBaseCaseGeneratorMetric = activeBaseCaseGeneratorMetric === "genActive" ? null : "genActive";
+          onMetricChange();
+        });
+
+        bcGenReactiveMetricButton.addEventListener("click", () => {
+          activeBaseCaseGeneratorMetric = activeBaseCaseGeneratorMetric === "genReactive" ? null : "genReactive";
+          onMetricChange();
+        });
+
+        refreshMetricButtonsState();
+        L.DomEvent.disableClickPropagation(container);
+        L.DomEvent.disableScrollPropagation(container);
+        return container;
+      }
+    });
+
+    map.addControl(new BaseCaseControl());
+  };
+
   const categoryPalette = [
     "#d62728", "#1f77b4", "#2ca02c", "#ff7f0e", "#9467bd", "#8c564b", "#e377c2",
     "#17becf", "#bcbd22", "#7f7f7f", "#1b9e77", "#e7298a", "#66a61e", "#e6ab02"
@@ -1650,6 +2150,8 @@
             activeFlowRowsByUid[uid],
             uid === selectedContingencyUid
           ));
+        } else if (currentViewMode === "baseCase") {
+          popup.setContent(baseCaseLineFlowPopupHtml(baseCaseFlowRowsByUid[uid]));
         } else {
           popup.setContent(propertiesToPopupHtml(feature.properties || {}, "Line"));
         }
@@ -1662,6 +2164,9 @@
       const row = activeBusRowsByBusId[busId];
 
       if (!row || !(currentViewMode === "contingency" && selectedContingencyUid && selectedContingencySeason && activeContingencyConverged)) {
+        if (currentViewMode === "baseCase") {
+          return baseCaseBusPopupHtml(feature);
+        }
         return propertiesToPopupHtml(props, "Bus");
       }
 
@@ -1674,6 +2179,50 @@
       ];
 
       return `<b>Substation</b><br>${rows.join("<br>")}`;
+    };
+
+    const baseCaseBusPopupHtml = (feature) => {
+      const props = (feature && feature.properties) || {};
+      const busId = normalizeBusValue(props["Bus ID"]);
+      const row = baseCaseBusRowsByBusId[busId];
+
+      if (!row) {
+        return propertiesToPopupHtml(props, "Bus");
+      }
+
+      const rows = [
+        `<b>Substation:</b> ${esc(String(row.Name || "N/A").trim())}`,
+        `<b>Bus ID:</b> ${esc(busId)}`,
+        `<b>Voltage:</b> ${esc(formatMetric(row["Volt(pu)"], "p.u."))}`,
+        `<b>Angle:</b> ${esc(formatMetric(row["Angle(deg)"], "deg"))}`
+      ];
+
+      return `<b>Substation</b><br>${rows.join("<br>")}`;
+    };
+
+    const baseCaseLineFlowPopupHtml = (row) => {
+      if (!row) {
+        return "<b>Line Flow</b><br>No base case flow data for this line.";
+      }
+
+      const busFrom = normalizeBusValue(row["FromBus#"] || row.__fromBus);
+      const busTo = normalizeBusValue(row["ToBus#"] || row.__toBus);
+      const circuit = String(row.CKT || row.__ckt || "N/A");
+
+      const detailRows = [
+        `<b>Bus From:</b> ${esc(busFrom)}`,
+        `<b>Bus To:</b> ${esc(busTo)}`,
+        `<b>Circuit:</b> ${esc(circuit)}`,
+        `<b>Active Flow i-&gt;j:</b> ${esc(formatIntegerMetric(row["Pij(MW)"], "MW"))}`,
+        `<b>Reactive Flow i-&gt;j:</b> ${esc(formatMetric(row["Qij(MVAr)"], "MVAr"))}`,
+        `<b>Apparent Flow:</b> ${esc(formatMetric(row["Sij(MVA)"], "MVA"))}`,
+        `<b>Rating:</b> ${esc(formatMetric(row.RateA, "MVA"))}`,
+        `<b>Active Losses:</b> ${esc(formatMetric(row["Ploss(MW)"], "MW"))}`,
+        `<b>Reactive Losses:</b> ${esc(formatMetric(row["Qloss(MVAr)"], "MVAr"))}`,
+        `<b>Loading:</b> ${esc(formatIntegerMetric(row["Loading_%"], "%"))}`
+      ];
+
+      return `<b>Line Flow</b><br>${detailRows.join("<br>")}`;
     };
 
     const refreshOpenBusPopups = () => {
@@ -1756,12 +2305,47 @@
         && selectedContingencySeason
         && activeContingencyConverged;
 
-      if (!contingencyMode) {
-        return generatorPropertiesToPopupHtml((feature && feature.properties) || {});
+      if (contingencyMode) {
+        const row = generatorContingencyRowForFeature(feature);
+        return generatorContingencyPopupHtml(row);
       }
 
-      const row = generatorContingencyRowForFeature(feature);
-      return generatorContingencyPopupHtml(row);
+      if (currentViewMode === "baseCase") {
+        return baseCaseGeneratorPopupHtml(feature);
+      }
+
+      return generatorPropertiesToPopupHtml((feature && feature.properties) || {});
+    };
+
+    const baseCaseGeneratorPopupHtml = (feature) => {
+      const props = (feature && feature.properties) || {};
+      const busId = normalizeBusValue(props["Bus ID"] ?? props.BusNumber ?? props["Bus#"]);
+      const machineId = normalizeMachineValue(props["Gen ID"] ?? props.MachineID);
+
+      let row = null;
+      if (busId && machineId) {
+        row = baseCaseGenRowsByBusAndMachine[genBusMachineKey(busId, machineId)] || null;
+        if (!row) {
+          const busCandidates = baseCaseGenRowsListByBus[busId] || [];
+          if (busCandidates.length) {
+            const machineLoose = normalizeMachineLoose(machineId);
+            row = busCandidates.find((r) => normalizeMachineLoose(r.MachineID) === machineLoose) || busCandidates[0] || null;
+          }
+        }
+      }
+
+      if (!row) {
+        return generatorPropertiesToPopupHtml(props);
+      }
+
+      const lines = [
+        `<b>MachineID:</b> ${esc(formatFloatValue(row.MachineID))}`,
+        `<b>Active Power:</b> ${esc(`${(Number(row["Pg(MW)"]) || 0).toFixed(2)} MW`)}`,
+        `<b>Reactive Power:</b> ${esc(`${(Number(row["Qg(MVAr)"]) || 0).toFixed(2)} MVAr`)}`,
+        `<b>Max Active Power:</b> ${esc(`${(Number(row["PgMax(MW)"]) || 0).toFixed(2)} MW`)}`,
+        `<b>Min Active Power:</b> ${esc(`${(Number(row["PgMin(MW)"]) || 0).toFixed(2)} MW`)}`
+      ];
+      return `<b>Generator</b><br>${lines.join("<br>")}`;
     };
 
     const refreshOpenGeneratorPopups = () => {
@@ -1837,6 +2421,39 @@
     };
 
     const applyMetricSelection = () => {
+      refreshMetricButtonsState();
+      refreshLineColorLegend();
+      refreshLineHighlight();
+      refreshBusColors();
+      refreshGeneratorColors();
+      refreshOpenLinePopups();
+      refreshOpenBusPopups();
+      refreshOpenGeneratorPopups();
+    };
+
+    const loadBaseCaseData = async (season) => {
+      const lineRows = await readBaseCaseLinesCsv(season);
+      const busRows = await readBaseCaseBusCsv(season);
+      const genRows = await readBaseCaseGenCsv(season);
+      baseCaseFlowRowsByUid = buildBaseCaseFlowRowsByUid(lineRows, branchMetaByUid);
+      baseCaseBusRowsByBusId = buildBaseCaseBusRowsByBusId(busRows);
+      baseCaseGenRowsByBusAndMachine = buildBaseCaseGenRowsByBusAndMachine(genRows);
+      baseCaseGenRowsListByBus = buildBaseCaseGenRowsListByBus(genRows);
+    };
+
+    const applyBaseCaseSeasonChange = async (season) => {
+      await loadBaseCaseData(season);
+      refreshMetricButtonsState();
+      refreshLineColorLegend();
+      refreshLineHighlight();
+      refreshBusColors();
+      refreshGeneratorColors();
+      refreshOpenLinePopups();
+      refreshOpenBusPopups();
+      refreshOpenGeneratorPopups();
+    };
+
+    const applyBaseCaseMetricSelection = () => {
       refreshMetricButtonsState();
       refreshLineColorLegend();
       refreshLineHighlight();
@@ -1953,12 +2570,20 @@
             );
           }
 
+          if (currentViewMode === "baseCase") {
+            return baseCaseLineFlowPopupHtml(baseCaseFlowRowsByUid[uid]);
+          }
+
           return propertiesToPopupHtml(feature.properties || {}, "Line");
         });
       }
     }).addTo(map);
 
     createContingencyControl(branchGeo, lineNameByUid, applyContingencySelection, applyMetricSelection);
+    createBaseCaseControl(applyBaseCaseSeasonChange, applyBaseCaseMetricSelection);
+
+    // Pre-load default base case season data
+    loadBaseCaseData(selectedBaseCaseSeason);
 
     genConnLayer = L.geoJSON(genConnGeo, {
       style: () => ({ color: "#000000", weight: 2, opacity: 0.95, dashArray: "6,6" }),
@@ -2045,6 +2670,38 @@
 
     const refreshGeneratorColors = () => {
       if (!gensLayer) {
+        return;
+      }
+
+      if (currentViewMode === "baseCase" && activeBaseCaseGeneratorMetric) {
+        const bcGenRows = Object.values(baseCaseGenRowsByBusAndMachine);
+        const bcValues = bcGenRows.map((r) => getMetricValueForRow(r, activeBaseCaseGeneratorMetric)).filter((v) => Number.isFinite(v));
+        const bcMin = bcValues.length ? Math.floor(Math.min(...bcValues)) : 0;
+        const bcMax = bcValues.length ? Math.ceil(Math.max(...bcValues)) : 1;
+        const fallbackColor = colorForMetricValue(bcMin, bcMin, bcMax, activeBaseCaseGeneratorMetric);
+
+        gensLayer.eachLayer((layer) => {
+          if (!layer || !layer.setStyle) {
+            return;
+          }
+          const feature = layer.feature || {};
+          const props = (feature && feature.properties) || {};
+          const busId = normalizeBusValue(props["Bus ID"] ?? props.BusNumber ?? props["Bus#"]);
+          const machineId = normalizeMachineValue(props["Gen ID"] ?? props.MachineID);
+          let row = null;
+          if (busId && machineId) {
+            row = baseCaseGenRowsByBusAndMachine[genBusMachineKey(busId, machineId)] || null;
+            if (!row) {
+              const busCandidates = baseCaseGenRowsListByBus[busId] || [];
+              if (busCandidates.length) {
+                row = busCandidates.find((r) => normalizeMachineLoose(r.MachineID) === normalizeMachineLoose(machineId)) || busCandidates[0] || null;
+              }
+            }
+          }
+          const value = getMetricValueForRow(row, activeBaseCaseGeneratorMetric);
+          const color = Number.isFinite(value) ? colorForMetricValue(value, bcMin, bcMax, activeBaseCaseGeneratorMetric) : fallbackColor;
+          layer.setStyle({ color, fillColor: color });
+        });
         return;
       }
 
@@ -2288,32 +2945,37 @@
 
     const setViewMode = (mode) => {
       const isContingency = mode === "contingency";
+      const isBaseCase = mode === "baseCase";
       currentViewMode = mode;
 
-      setTheme(isContingency ? "dark" : "light");
+      setTheme((isContingency || isBaseCase) ? "dark" : "light");
 
       // Keep the overlays in a deterministic state by mode.
       setLayerVisible(linesLayer, true);
-      setLayerVisible(areasLayer, !isContingency);
-      setLayerVisible(genConnLayer, !isContingency);
+      setLayerVisible(areasLayer, !isContingency && !isBaseCase);
+      setLayerVisible(genConnLayer, !isContingency && !isBaseCase);
 
       // Keep generators visible in both modes; contingency starts with purple generator markers enabled.
       setAllGeneratorCategories(true);
       setAllBusTypes(true);
 
-      // Contingency mode uses uniform purple generators; default restores category colors.
+      // Contingency/base case mode uses uniform purple generators; default restores category colors.
       setGeneratorMarkerColors(isContingency);
 
       if (genLegendElement) {
-        genLegendElement.style.display = isContingency ? "none" : "block";
+        genLegendElement.style.display = (isContingency || isBaseCase) ? "none" : "block";
       }
       if (busLegendElement) {
-        busLegendElement.style.display = isContingency ? "none" : "block";
+        busLegendElement.style.display = (isContingency || isBaseCase) ? "none" : "block";
       }
       if (contingencyControlContainer) {
         contingencyControlContainer.style.display = isContingency ? "block" : "none";
       }
+      if (baseCaseControlContainer) {
+        baseCaseControlContainer.style.display = isBaseCase ? "block" : "none";
+      }
 
+      refreshMetricButtonsState();
       refreshLineColorLegend();
       refreshLineHighlight();
       refreshBusColors();
@@ -2322,14 +2984,20 @@
       refreshOpenBusPopups();
       refreshOpenGeneratorPopups();
 
-      setOverlayLegendEntryVisible("Generator Connections", !isContingency);
-      setOverlayLegendEntryVisible("Buses", isContingency);
-      setOverlayLegendEntryVisible("Generators", isContingency);
+      setOverlayLegendEntryVisible("Generator Connections", !isContingency && !isBaseCase);
+      setOverlayLegendEntryVisible("Buses", isContingency || isBaseCase);
+      setOverlayLegendEntryVisible("Generators", isContingency || isBaseCase);
 
       const defaultTab = document.getElementById("view-mode-default");
+      const baseCaseTab = document.getElementById("view-mode-basecase");
       const contingencyTab = document.getElementById("view-mode-contingency");
-      if (defaultTab && contingencyTab) {
-        defaultTab.classList.toggle("active", !isContingency);
+      if (defaultTab) {
+        defaultTab.classList.toggle("active", mode === "default");
+      }
+      if (baseCaseTab) {
+        baseCaseTab.classList.toggle("active", isBaseCase);
+      }
+      if (contingencyTab) {
         contingencyTab.classList.toggle("active", isContingency);
       }
     };
@@ -2344,6 +3012,11 @@
         defaultBtn.type = "button";
         defaultBtn.textContent = "Default";
 
+        const baseCaseBtn = L.DomUtil.create("button", "view-mode-tab", container);
+        baseCaseBtn.id = "view-mode-basecase";
+        baseCaseBtn.type = "button";
+        baseCaseBtn.textContent = "Base Case";
+
         const contingencyBtn = L.DomUtil.create("button", "view-mode-tab", container);
         contingencyBtn.id = "view-mode-contingency";
         contingencyBtn.type = "button";
@@ -2353,6 +3026,7 @@
         L.DomEvent.disableScrollPropagation(container);
 
         defaultBtn.addEventListener("click", () => setViewMode("default"));
+        baseCaseBtn.addEventListener("click", () => setViewMode("baseCase"));
         contingencyBtn.addEventListener("click", () => setViewMode("contingency"));
 
         return container;
