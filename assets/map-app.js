@@ -386,10 +386,17 @@
       const row = baseCaseFlowRowsByUid[uid];
       const value = getMetricValueForRow(row, activeBaseCaseLineMetric);
       if (Number.isFinite(value)) {
-        const sourceRows = Object.values(baseCaseFlowRowsByUid);
-        const values = sourceRows.map((r) => getMetricValueForRow(r, activeBaseCaseLineMetric)).filter((v) => Number.isFinite(v));
-        const min = values.length ? Math.floor(Math.min(...values)) : 0;
-        const max = values.length ? Math.ceil(Math.max(...values)) : 1;
+        let min;
+        let max;
+        if (activeBaseCaseLineMetric === "loading") {
+          min = 0;
+          max = 150;
+        } else {
+          const sourceRows = Object.values(baseCaseFlowRowsByUid);
+          const values = sourceRows.map((r) => getMetricValueForRow(r, activeBaseCaseLineMetric)).filter((v) => Number.isFinite(v));
+          min = values.length ? Math.floor(Math.min(...values)) : 0;
+          max = values.length ? Math.ceil(Math.max(...values)) : 1;
+        }
         return {
           color: colorForMetricValue(value, min, max, activeBaseCaseLineMetric),
           weight: 3.2,
@@ -498,6 +505,11 @@
   const getMetricValueForBusId = (busId, metric) => getMetricValueForRow(activeBusRowsByBusId[busId], metric);
 
   const getMetricRange = (metric) => {
+    // Loading always uses a fixed 0–150% scale
+    if (metric === "loading") {
+      return { min: 0, max: 150 };
+    }
+
     let sourceRows = Object.values(activeFlowRowsByUid);
     if (metric === "busVoltage") {
       sourceRows = Object.values(activeBusRowsByBusId);
@@ -571,6 +583,25 @@
         g = Math.round(mid[1] + (high[1] - mid[1]) * tt);
         b = Math.round(mid[2] + (high[2] - mid[2]) * tt);
       }
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    if (metric === "loading" || metric === "lineFlow") {
+      // 4-stop ramp: blue (0) → green (1/3) → yellow (2/3) → red (1)
+      const stops = [
+        [59, 130, 246],   // blue   #3b82f6
+        [34, 197, 94],    // green  #22c255
+        [250, 204, 21],   // yellow #facc15
+        [239, 68, 68]     // red    #ef4444
+      ];
+      const seg = t * (stops.length - 1);
+      const idx = Math.min(Math.floor(seg), stops.length - 2);
+      const tt = seg - idx;
+      const s0 = stops[idx];
+      const s1 = stops[idx + 1];
+      const r = Math.round(s0[0] + (s1[0] - s0[0]) * tt);
+      const g = Math.round(s0[1] + (s1[1] - s0[1]) * tt);
+      const b = Math.round(s0[2] + (s1[2] - s0[2]) * tt);
       return `rgb(${r}, ${g}, ${b})`;
     }
 
@@ -1533,6 +1564,9 @@
         ? "linear-gradient(to top, #ef4444 0%, #facc15 55%, #16a34a 80%, #14532d 100%)"
         : "linear-gradient(to top, #ef4444 0%, #facc15 50%, #16a34a 100%)";
     }
+    if (metric === "loading" || metric === "lineFlow") {
+      return "linear-gradient(to top, #3b82f6 0%, #22c55e 33%, #facc15 67%, #ef4444 100%)";
+    }
     if (metric === "genActive") {
       return "linear-gradient(to top, #add8e6 0%, #ef4444 100%)";
     }
@@ -1558,6 +1592,20 @@
   };
 
   const legendSectionHtmlForRows = (metric, rows) => {
+    // Loading uses a fixed 0–150 scale regardless of actual data values
+    if (metric === "loading") {
+      const gradient = metricGradient(metric, 150);
+      return `
+      <div class="line-color-legend-section">
+        <div class="line-color-legend-title">${esc(metricLabel(metric))}</div>
+        <div class="line-color-legend-scale-wrap">
+          <div class="line-color-legend-max">150</div>
+          <div class="line-color-legend-gradient" style="background:${gradient};"></div>
+          <div class="line-color-legend-min">0</div>
+        </div>
+      </div>
+    `;
+    }
     const values = rows
       .map((row) => getMetricValueForRow(row, metric))
       .filter((v) => Number.isFinite(v));
