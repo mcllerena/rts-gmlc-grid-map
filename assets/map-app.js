@@ -6,8 +6,10 @@
 
   const map = L.map("map", {
     zoomControl: true,
-    zoomDelta: 0.5,
-    zoomSnap: 0.5
+    zoomDelta: 0.25,
+    zoomSnap: 0.25,
+    wheelPxPerZoomLevel: 180,
+    wheelDebounceTime: 70
   }).setView(fallbackCenter, fallbackZoom);
 
   const lightTiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -71,6 +73,14 @@
   let baseCaseGenRowsListByBus = {};
   let baseCaseDataPanelRef = null;
   let contingencyDataPanelRef = null;
+  let flowAnimationControlContainer = null;
+  let flowAnimationButton = null;
+  let flowAnimationLayer = null;
+  let flowAnimationActors = [];
+  let flowAnimationFrameId = 0;
+  let flowAnimationLastFrameTs = 0;
+  let isFlowAnimationActive = false;
+  const flowAngleEpsilonDeg = 1e-5;
   const popupLayers = [];
   const warning = document.getElementById("map-warning");
 
@@ -424,6 +434,348 @@
       }
       layer.setStyle(lineStyleForFeature(layer.feature));
     });
+  };
+
+  const getActiveLineRowByUidForFlow = (uid) => {
+    if (currentViewMode === "contingency") {
+      return activeFlowRowsByUid[uid] || null;
+    }
+    if (currentViewMode === "baseCase") {
+      return baseCaseFlowRowsByUid[uid] || null;
+    }
+    return null;
+  };
+
+  const getBusAngleForFlow = (busId) => {
+    if (!busId) {
+      return Number.NaN;
+    }
+
+    if (currentViewMode === "contingency") {
+      const row = activeBusRowsByBusId[busId];
+      return row ? Number(row["Angle(deg)"]) : Number.NaN;
+    }
+
+    if (currentViewMode === "baseCase") {
+      const row = baseCaseBusRowsByBusId[busId];
+      return row ? Number(row["Angle(deg)"]) : Number.NaN;
+    }
+
+    return Number.NaN;
+  };
+
+  const getLineLatLngPath = (layer) => {
+    if (!layer || !layer.getLatLngs) {
+      return [];
+    }
+
+    const latlngs = layer.getLatLngs();
+    if (!Array.isArray(latlngs) || !latlngs.length) {
+      return [];
+    }
+
+    if (Array.isArray(latlngs[0])) {
+      return latlngs[0] || [];
+    }
+
+    return latlngs;
+  };
+
+  const buildPathMetrics = (latlngs) => {
+    const cumulative = [0];
+    let total = 0;
+
+    for (let i = 1; i < latlngs.length; i += 1) {
+      const segment = map.distance(latlngs[i - 1], latlngs[i]);
+      total += Number.isFinite(segment) ? segment : 0;
+      cumulative.push(total);
+    }
+
+    return { cumulative, total };
+  };
+
+  const buildPathPixelLength = (latlngs) => {
+    if (!Array.isArray(latlngs) || latlngs.length < 2) {
+      return 0;
+    }
+
+    let total = 0;
+    for (let i = 1; i < latlngs.length; i += 1) {
+      const a = map.latLngToLayerPoint(latlngs[i - 1]);
+      const b = map.latLngToLayerPoint(latlngs[i]);
+      total += Math.hypot(b.x - a.x, b.y - a.y);
+    }
+    return total;
+  };
+
+  const flowArrowVisualByZoom = () => {
+    const z = Number(map.getZoom()) || 6;
+    const size = Math.max(14, Math.min(34, Math.round(14 + ((z - 6) * 2.2))));
+    return { size };
+  };
+
+  const interpolateOnPath = (latlngs, cumulative, total, progress) => {
+    if (!latlngs.length) {
+      return null;
+    }
+    if (latlngs.length === 1 || total <= 0) {
+      return {
+        latlng: latlngs[0],
+        bearingDeg: 0
+      };
+    }
+
+    const bounded = Math.max(0, Math.min(1, progress));
+    const target = bounded * total;
+
+    let segmentIndex = 0;
+    for (let i = 0; i < cumulative.length - 1; i += 1) {
+      if (target >= cumulative[i] && target <= cumulative[i + 1]) {
+        segmentIndex = i;
+        break;
+      }
+    }
+
+    const a = latlngs[segmentIndex];
+    const b = latlngs[Math.min(segmentIndex + 1, latlngs.length - 1)];
+    const segStart = cumulative[segmentIndex];
+    const segEnd = cumulative[Math.min(segmentIndex + 1, cumulative.length - 1)];
+    const segLen = Math.max(0.0001, segEnd - segStart);
+    const t = Math.max(0, Math.min(1, (target - segStart) / segLen));
+
+    const lat = a.lat + (b.lat - a.lat) * t;
+    const lng = a.lng + (b.lng - a.lng) * t;
+    // Compute visual heading in screen space so arrows always point along motion.
+    const pa = map.latLngToLayerPoint(a);
+    const pb = map.latLngToLayerPoint(b);
+    const bearingDeg = Math.atan2(pb.y - pa.y, pb.x - pa.x) * (180 / Math.PI);
+
+    return {
+      latlng: L.latLng(lat, lng),
+      bearingDeg
+    };
+  };
+
+  const clearFlowAnimationActors = () => {
+    flowAnimationActors.forEach((actor) => {
+      if (actor.marker && flowAnimationLayer && flowAnimationLayer.hasLayer(actor.marker)) {
+        flowAnimationLayer.removeLayer(actor.marker);
+      }
+    });
+    flowAnimationActors = [];
+  };
+
+  const stopFlowAnimationLoop = () => {
+    if (flowAnimationFrameId) {
+      window.cancelAnimationFrame(flowAnimationFrameId);
+      flowAnimationFrameId = 0;
+    }
+    flowAnimationLastFrameTs = 0;
+  };
+
+  const hasFlowAnimationData = () => {
+    if (currentViewMode === "baseCase") {
+      return Object.keys(baseCaseBusRowsByBusId).length > 0;
+    }
+
+    if (currentViewMode === "contingency") {
+      return !!selectedContingencyUid && activeContingencyConverged && Object.keys(activeBusRowsByBusId).length > 0;
+    }
+
+    return false;
+  };
+
+  const rebuildFlowAnimationActors = () => {
+    if (!linesLayer || !hasFlowAnimationData()) {
+      clearFlowAnimationActors();
+      return;
+    }
+
+    if (!flowAnimationLayer) {
+      flowAnimationLayer = L.layerGroup().addTo(map);
+    }
+
+    clearFlowAnimationActors();
+
+    linesLayer.eachLayer((lineLayer) => {
+      const feature = (lineLayer && lineLayer.feature) || {};
+      const props = feature.properties || {};
+      const uid = String(props.UID || "").trim();
+      const fromBus = normalizeBusValue(props["From Bus"]);
+      const toBus = normalizeBusValue(props["To Bus"]);
+
+      const fromAngle = getBusAngleForFlow(fromBus);
+      const toAngle = getBusAngleForFlow(toBus);
+      if (!Number.isFinite(fromAngle) || !Number.isFinite(toAngle)) {
+        return;
+      }
+
+      if (Math.abs(fromAngle - toAngle) <= flowAngleEpsilonDeg) {
+        return;
+      }
+
+      const basePath = getLineLatLngPath(lineLayer);
+      if (!basePath.length || basePath.length < 2) {
+        return;
+      }
+
+      // Real-power direction is from higher phase angle bus to lower phase angle bus.
+      const directedPath = fromAngle > toAngle ? basePath.slice() : basePath.slice().reverse();
+      const { cumulative, total } = buildPathMetrics(directedPath);
+      if (!Number.isFinite(total) || total < 20) {
+        return;
+      }
+
+      const row = getActiveLineRowByUidForFlow(uid);
+      const absMw = Math.abs(Number(row && row["Pij(MW)"]));
+      const speed = Number.isFinite(absMw)
+        ? Math.min(1.15, 0.22 + (absMw / 1400))
+        : 0.28;
+      const arrowColor = (lineLayer && lineLayer.options && lineLayer.options.color)
+        || (lineStyleForFeature(feature) || {}).color
+        || "#06b6d4";
+
+      const { size: arrowSize } = flowArrowVisualByZoom();
+
+      const icon = L.divIcon({
+        className: "flow-arrow-marker",
+        html: `<span class="flow-arrow-glyph" style="width:${arrowSize}px;height:${arrowSize}px;font-size:${arrowSize}px;line-height:${arrowSize}px;color:${arrowColor};">&gt;</span>`,
+        iconSize: [arrowSize, arrowSize],
+        iconAnchor: [Math.round(arrowSize / 2), Math.round(arrowSize / 2)]
+      });
+
+      // Place multiple arrows on each line so the flow direction is visible everywhere.
+      const pixelLength = buildPathPixelLength(directedPath);
+      const markerCount = Math.max(2, Math.min(20, Math.floor(pixelLength / 120) + 1));
+      const seed = (hashString(uid) % 1000) / 1000;
+
+      for (let i = 0; i < markerCount; i += 1) {
+        const marker = L.marker(directedPath[0], {
+          icon,
+          interactive: false,
+          keyboard: false,
+          pane: "markerPane"
+        }).addTo(flowAnimationLayer);
+
+        const seededProgress = (seed + (i / markerCount)) % 1;
+
+        flowAnimationActors.push({
+          marker,
+          directedPath,
+          cumulative,
+          total,
+          progress: seededProgress,
+          speed,
+          glyphEl: null
+        });
+      }
+    });
+  };
+
+  const animateFlowFrame = (timestamp) => {
+    if (!isFlowAnimationActive) {
+      stopFlowAnimationLoop();
+      return;
+    }
+
+    if (!flowAnimationActors.length) {
+      flowAnimationFrameId = window.requestAnimationFrame(animateFlowFrame);
+      return;
+    }
+
+    if (!flowAnimationLastFrameTs) {
+      flowAnimationLastFrameTs = timestamp;
+    }
+
+    const dt = Math.min(0.16, Math.max(0, (timestamp - flowAnimationLastFrameTs) / 1000));
+    flowAnimationLastFrameTs = timestamp;
+
+    flowAnimationActors.forEach((actor) => {
+      actor.progress = (actor.progress + (actor.speed * dt)) % 1;
+      const sample = interpolateOnPath(actor.directedPath, actor.cumulative, actor.total, actor.progress);
+      if (!sample) {
+        return;
+      }
+
+      actor.marker.setLatLng(sample.latlng);
+
+      if (!actor.glyphEl) {
+        const markerEl = actor.marker.getElement();
+        actor.glyphEl = markerEl ? markerEl.querySelector(".flow-arrow-glyph") : null;
+      }
+
+      if (actor.glyphEl) {
+        actor.glyphEl.style.transform = `rotate(${sample.bearingDeg}deg)`;
+      }
+    });
+
+    flowAnimationFrameId = window.requestAnimationFrame(animateFlowFrame);
+  };
+
+  const stopFlowAnimation = () => {
+    isFlowAnimationActive = false;
+    stopFlowAnimationLoop();
+    clearFlowAnimationActors();
+
+    if (flowAnimationButton) {
+      flowAnimationButton.classList.remove("active");
+    }
+
+    if (flowAnimationLayer && map.hasLayer(flowAnimationLayer)) {
+      map.removeLayer(flowAnimationLayer);
+    }
+  };
+
+  const startFlowAnimation = () => {
+    if (!hasFlowAnimationData()) {
+      return;
+    }
+
+    isFlowAnimationActive = true;
+    if (!flowAnimationLayer) {
+      flowAnimationLayer = L.layerGroup().addTo(map);
+    } else if (!map.hasLayer(flowAnimationLayer)) {
+      flowAnimationLayer.addTo(map);
+    }
+
+    rebuildFlowAnimationActors();
+
+    if (flowAnimationButton) {
+      flowAnimationButton.classList.add("active");
+    }
+
+    if (!flowAnimationFrameId) {
+      flowAnimationFrameId = window.requestAnimationFrame(animateFlowFrame);
+    }
+  };
+
+  const refreshFlowAnimationControlState = () => {
+    const showControl = currentViewMode === "baseCase" || currentViewMode === "contingency";
+    if (flowAnimationControlContainer) {
+      flowAnimationControlContainer.style.display = showControl ? "block" : "none";
+    }
+
+    if (!showControl) {
+      if (isFlowAnimationActive) {
+        stopFlowAnimation();
+      }
+      return;
+    }
+
+    const enabled = hasFlowAnimationData();
+    if (flowAnimationButton) {
+      flowAnimationButton.disabled = !enabled;
+      flowAnimationButton.classList.toggle("active", isFlowAnimationActive);
+    }
+
+    if (!enabled && isFlowAnimationActive) {
+      stopFlowAnimation();
+      return;
+    }
+
+    if (enabled && isFlowAnimationActive) {
+      startFlowAnimation();
+    }
   };
 
   const busIconHtml = (color) => `<div style="width:12px;height:12px;background:${color};border:1px solid ${color};box-sizing:border-box;position:relative;overflow:hidden;"><span style="position:absolute;left:-2px;top:5px;width:16px;height:1.4px;background:#111;transform:rotate(45deg);transform-origin:center;"></span></div>`;
@@ -3100,6 +3452,7 @@
         refreshOpenLinePopups();
         refreshOpenBusPopups();
         refreshOpenGeneratorPopups();
+        refreshFlowAnimationControlState();
         refreshLineHighlight();
         refreshBusColors();
         refreshGeneratorColors();
@@ -3137,6 +3490,7 @@
       refreshOpenLinePopups();
       refreshOpenBusPopups();
       refreshOpenGeneratorPopups();
+      refreshFlowAnimationControlState();
       if (contingencyDataPanelRef) {
         contingencyDataPanelRef.refresh();
       }
@@ -3151,6 +3505,7 @@
       refreshOpenLinePopups();
       refreshOpenBusPopups();
       refreshOpenGeneratorPopups();
+      refreshFlowAnimationControlState();
     };
 
     const loadBaseCaseData = async (season) => {
@@ -3168,6 +3523,7 @@
       if (baseCaseDataPanelRef) {
         baseCaseDataPanelRef.refresh();
       }
+      refreshFlowAnimationControlState();
       refreshMetricButtonsState();
       refreshLineColorLegend();
       refreshLineHighlight();
@@ -3187,6 +3543,7 @@
       refreshOpenLinePopups();
       refreshOpenBusPopups();
       refreshOpenGeneratorPopups();
+      refreshFlowAnimationControlState();
     };
 
     const categoryOf = (feature) => ((feature && feature.properties && feature.properties.Category) || "Unknown");
@@ -3309,7 +3666,9 @@
     createBaseCaseControl(applyBaseCaseSeasonChange, applyBaseCaseMetricSelection);
 
     // Pre-load default base case season data
-    loadBaseCaseData(selectedBaseCaseSeason);
+    loadBaseCaseData(selectedBaseCaseSeason).then(() => {
+      refreshFlowAnimationControlState();
+    });
 
     baseCaseDataPanelRef = createBaseCaseDataPanel(map.getContainer());
 
@@ -3481,6 +3840,46 @@
     };
 
     const layersControl = L.control.layers(null, overlays, { collapsed: false }).addTo(map);
+
+    const FlowAnimationControl = L.Control.extend({
+      options: { position: "topright" },
+      onAdd() {
+        const container = L.DomUtil.create("div", "flow-animation-control leaflet-bar");
+        flowAnimationControlContainer = container;
+
+        const btn = L.DomUtil.create("button", "flow-animation-btn", container);
+        flowAnimationButton = btn;
+        btn.type = "button";
+        btn.textContent = "Animated Flow";
+        btn.title = "Animate line flow from higher to lower bus angle";
+
+        btn.addEventListener("click", () => {
+          if (btn.disabled) {
+            return;
+          }
+
+          if (isFlowAnimationActive) {
+            stopFlowAnimation();
+          } else {
+            startFlowAnimation();
+          }
+
+          refreshFlowAnimationControlState();
+        });
+
+        L.DomEvent.disableClickPropagation(container);
+        L.DomEvent.disableScrollPropagation(container);
+        return container;
+      }
+    });
+
+    map.addControl(new FlowAnimationControl());
+
+    map.on("zoomend", () => {
+      if (isFlowAnimationActive) {
+        startFlowAnimation();
+      }
+    });
 
     const setOverlayLegendEntryVisible = (labelText, visible) => {
       if (!layersControl || !layersControl.getContainer) {
@@ -3702,6 +4101,8 @@
       if (baseCaseControlContainer) {
         baseCaseControlContainer.style.display = isBaseCase ? "block" : "none";
       }
+
+      refreshFlowAnimationControlState();
 
       refreshMetricButtonsState();
       refreshLineColorLegend();

@@ -455,6 +455,75 @@ body.dark-mode .bc-show-data-btn:hover {
   background: #075985;
 }
 
+.flow-animation-control {
+  margin-top: 8px;
+}
+
+.flow-animation-btn {
+  width: 180px;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font: 700 12px/1.2 sans-serif;
+  background: #e0f2fe;
+  color: #0c4a6e;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease, opacity 140ms ease;
+}
+
+.flow-animation-btn:hover {
+  background: #bae6fd;
+}
+
+.flow-animation-btn.active {
+  background: #bbf7d0;
+  color: #14532d;
+  border-color: #16a34a;
+}
+
+.flow-animation-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.flow-arrow-marker {
+  background: transparent;
+  border: 0;
+}
+
+.flow-arrow-glyph {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  color: #06b6d4;
+  font: 700 16px/16px monospace;
+  text-align: center;
+  text-shadow: 0 0 4px rgba(2, 6, 23, 0.8);
+  transform-origin: 50% 50%;
+  pointer-events: none;
+  user-select: none;
+}
+
+body.dark-mode .flow-animation-btn {
+  background: #0c4a6e;
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #bae6fd;
+}
+
+body.dark-mode .flow-animation-btn:hover {
+  background: #075985;
+}
+
+body.dark-mode .flow-animation-btn.active {
+  background: #86efac;
+  color: #052e16;
+  border-color: #22c55e;
+}
+
+body.dark-mode .flow-arrow-glyph {
+  color: #22d3ee;
+}
+
 /* ---- Base Case Data Panel ---- */
 .bc-data-panel {
   position: absolute;
