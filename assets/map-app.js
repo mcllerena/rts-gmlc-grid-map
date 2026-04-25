@@ -72,7 +72,9 @@
   let baseCaseGenRowsByBusAndMachine = {};
   let baseCaseGenRowsListByBus = {};
   let baseCaseDataPanelRef = null;
+  let baseCasePlotPanelRef = null;
   let contingencyDataPanelRef = null;
+  let contingencyPlotPanelRef = null;
   let flowAnimationControlContainer = null;
   let flowAnimationButton = null;
   let flowAnimationLayer = null;
@@ -80,6 +82,7 @@
   let flowAnimationFrameId = 0;
   let flowAnimationLastFrameTs = 0;
   let isFlowAnimationActive = false;
+  let plotlyLoaderPromise = null;
   const flowAngleEpsilonDeg = 1e-5;
   const popupLayers = [];
   const warning = document.getElementById("map-warning");
@@ -601,6 +604,12 @@
       const feature = (lineLayer && lineLayer.feature) || {};
       const props = feature.properties || {};
       const uid = String(props.UID || "").trim();
+
+      // In contingency mode, the selected contingency line is outaged/disconnected.
+      if (currentViewMode === "contingency" && selectedContingencyUid && uid === selectedContingencyUid) {
+        return;
+      }
+
       const fromBus = normalizeBusValue(props["From Bus"]);
       const toBus = normalizeBusValue(props["To Bus"]);
 
@@ -2059,6 +2068,11 @@
       caBtn.disabled = !enabled;
     }
 
+    const caPlotBtn = createContingencyControl._plotDataBtn;
+    if (caPlotBtn) {
+      caPlotBtn.disabled = !enabled;
+    }
+
     // Base case buttons are always enabled when in base case mode
     if (bcLoadingMetricButton) {
       bcLoadingMetricButton.classList.toggle("active", activeBaseCaseLineMetric === "loading");
@@ -2104,7 +2118,7 @@
     return `<b>${title}</b><br>${detailRows.join("<br>")}`;
   };
 
-  const createContingencyControl = (branchGeo, lineNameByUid, onSelectionChange, onMetricChange) => {
+  const createContingencyControl = (branchGeo, lineNameByUid, onSelectionChange, onMetricChange, onPlotData) => {
     const lineOptions = Array.from(new Set((branchGeo.features || [])
       .map((feature) => String((feature && feature.properties && feature.properties.UID) || ""))
       .filter((uid) => uid.length > 0)))
@@ -2266,7 +2280,9 @@
           onMetricChange();
         });
 
-        const caShowDataBtn = L.DomUtil.create("button", "bc-show-data-btn", dropdownWrap);
+        const actionsCard = L.DomUtil.create("div", "control-actions-card", dropdownWrap);
+
+        const caShowDataBtn = L.DomUtil.create("button", "bc-show-data-btn", actionsCard);
         caShowDataBtn.type = "button";
         caShowDataBtn.textContent = "Show Data";
         caShowDataBtn.disabled = true;
@@ -2276,8 +2292,19 @@
           }
         });
 
+        const caPlotDataBtn = L.DomUtil.create("button", "bc-plot-data-btn", actionsCard);
+        caPlotDataBtn.type = "button";
+        caPlotDataBtn.textContent = "Plot Data";
+        caPlotDataBtn.disabled = true;
+        caPlotDataBtn.addEventListener("click", () => {
+          if (typeof onPlotData === "function") {
+            onPlotData();
+          }
+        });
+
         // Expose so applyContingencySelection can toggle enabled state
         createContingencyControl._showDataBtn = caShowDataBtn;
+        createContingencyControl._plotDataBtn = caPlotDataBtn;
 
         refreshLineOptionLabels();
         syncSeasonSelectWithLine();
@@ -2292,7 +2319,7 @@
     map.addControl(new ContingencyControl());
   };
 
-  const createBaseCaseControl = (onSeasonChange, onMetricChange) => {
+  const createBaseCaseControl = (onSeasonChange, onMetricChange, onPlotData) => {
     const BaseCaseControl = L.Control.extend({
       options: { position: "topleft" },
       onAdd() {
@@ -2375,12 +2402,23 @@
           onMetricChange();
         });
 
-        const showDataBtn = L.DomUtil.create("button", "bc-show-data-btn", dropdownWrap);
+        const actionsCard = L.DomUtil.create("div", "control-actions-card", dropdownWrap);
+
+        const showDataBtn = L.DomUtil.create("button", "bc-show-data-btn", actionsCard);
         showDataBtn.type = "button";
         showDataBtn.textContent = "Show Data";
         showDataBtn.addEventListener("click", () => {
           if (baseCaseDataPanelRef) {
             baseCaseDataPanelRef.show();
+          }
+        });
+
+        const plotDataBtn = L.DomUtil.create("button", "bc-plot-data-btn", actionsCard);
+        plotDataBtn.type = "button";
+        plotDataBtn.textContent = "Plot Data";
+        plotDataBtn.addEventListener("click", () => {
+          if (typeof onPlotData === "function") {
+            onPlotData();
           }
         });
 
@@ -2513,6 +2551,33 @@
       throw new Error(`Failed to load ${name}.geojson (${response.status})`);
     }
     return response.json();
+  };
+
+  const ensurePlotlyLoaded = async () => {
+    if (window.Plotly) {
+      return window.Plotly;
+    }
+
+    if (!plotlyLoaderPromise) {
+      plotlyLoaderPromise = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdn.plot.ly/plotly-2.35.2.min.js";
+        script.async = true;
+        script.onload = () => {
+          if (window.Plotly) {
+            resolve(window.Plotly);
+          } else {
+            reject(new Error("Plotly loaded but window.Plotly is unavailable."));
+          }
+        };
+        script.onerror = () => {
+          reject(new Error("Failed to load Plotly from CDN."));
+        };
+        document.head.appendChild(script);
+      });
+    }
+
+    return plotlyLoaderPromise;
   };
 
   const createContingencyDataPanel = (mapContainer) => {
@@ -3157,6 +3222,1154 @@
     };
   };
 
+  const createBaseCasePlotPanel = (mapContainer) => {
+    const overlay = document.createElement("div");
+    overlay.className = "bc-data-panel bc-plot-panel";
+    overlay.style.display = "none";
+    mapContainer.appendChild(overlay);
+
+    const header = document.createElement("div");
+    header.className = "bc-data-panel-header";
+    overlay.appendChild(header);
+
+    const titleEl = document.createElement("span");
+    titleEl.className = "bc-data-panel-title";
+    titleEl.textContent = "Base Case Plots";
+    header.appendChild(titleEl);
+
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "bc-data-panel-close";
+    closeBtn.type = "button";
+    closeBtn.title = "Close";
+    closeBtn.textContent = "✕";
+    header.appendChild(closeBtn);
+
+    const tabsBar = document.createElement("div");
+    tabsBar.className = "bc-data-panel-tabs";
+    overlay.appendChild(tabsBar);
+
+    const tabDefs = [
+      {
+        key: "buses",
+        label: "Buses",
+        xLabel: "Bus #",
+        itemLabelPlural: "buses",
+        metrics: [
+          { key: "busVoltage", label: "Voltage", yLabel: "Voltage (p.u.)", primaryColor: "#2563eb", accentColor: "#10b981" },
+          { key: "busAngle", label: "Angle", yLabel: "Angle (deg)", primaryColor: "#f97316", accentColor: "#f59e0b" }
+        ]
+      },
+      {
+        key: "lines",
+        label: "Lines",
+        xLabel: "Line (From-To CKT)",
+        itemLabelPlural: "lines",
+        metrics: [
+          { key: "lineLoading", label: "Loading", yLabel: "Loading (%)", primaryColor: "#dc2626", accentColor: "#f97316" },
+          { key: "lineActiveFlow", label: "Active Flow From-To", yLabel: "Active Flow i-j (MW)", primaryColor: "#7c3aed", accentColor: "#a855f7" },
+          { key: "lineReactiveFlow", label: "Reactive Flow From-To", yLabel: "Reactive Flow i-j (MVAr)", primaryColor: "#0891b2", accentColor: "#06b6d4" }
+        ]
+      },
+      {
+        key: "generators",
+        label: "Generators",
+        xLabel: "Generator (Bus|Machine)",
+        itemLabelPlural: "generators",
+        metrics: [
+          { key: "genActive", label: "Active Power", yLabel: "Active Power (MW)", primaryColor: "#2563eb", accentColor: "#3b82f6" },
+          { key: "genReactive", label: "Reactive Power", yLabel: "Reactive Power (MVAr)", primaryColor: "#0f766e", accentColor: "#14b8a6" }
+        ]
+      }
+    ];
+
+    const tabByKey = Object.fromEntries(tabDefs.map((tab) => [tab.key, tab]));
+    const metricByKey = {};
+    tabDefs.forEach((tab) => {
+      tab.metrics.forEach((metric) => {
+        metricByKey[metric.key] = metric;
+      });
+    });
+
+    let activeTab = tabDefs[0].key;
+    const activeMetricByTab = {
+      buses: "busVoltage",
+      lines: "lineLoading",
+      generators: "genActive"
+    };
+
+    const tabBtns = {};
+    tabDefs.forEach(({ key, label }) => {
+      const btn = document.createElement("button");
+      btn.className = `bc-data-tab${key === activeTab ? " active" : ""}`;
+      btn.type = "button";
+      btn.textContent = label;
+      tabBtns[key] = btn;
+      tabsBar.appendChild(btn);
+    });
+
+    const contentWrap = document.createElement("div");
+    contentWrap.className = "bc-plot-content";
+    overlay.appendChild(contentWrap);
+
+    const controlsRow = document.createElement("div");
+    controlsRow.className = "bc-plot-controls";
+    contentWrap.appendChild(controlsRow);
+
+    const metricLabelEl = document.createElement("label");
+    metricLabelEl.className = "bc-plot-controls-label";
+    metricLabelEl.textContent = "Metric";
+    metricLabelEl.setAttribute("for", "bc-plot-metric-select");
+    controlsRow.appendChild(metricLabelEl);
+
+    const metricSelect = document.createElement("select");
+    metricSelect.className = "bc-plot-metric-select";
+    metricSelect.id = "bc-plot-metric-select";
+    controlsRow.appendChild(metricSelect);
+
+    const infoBar = document.createElement("div");
+    infoBar.className = "bc-plot-info";
+    contentWrap.appendChild(infoBar);
+
+    const chartWrap = document.createElement("div");
+    chartWrap.className = "bc-plot-chart-wrap";
+    contentWrap.appendChild(chartWrap);
+
+    const chartEl = document.createElement("div");
+    chartEl.className = "bc-plot-chart";
+    chartWrap.appendChild(chartEl);
+
+    const emptyStateEl = document.createElement("div");
+    emptyStateEl.className = "bc-plot-empty";
+    emptyStateEl.style.display = "none";
+    chartWrap.appendChild(emptyStateEl);
+
+    let renderNonce = 0;
+
+    const showEmpty = (message) => {
+      emptyStateEl.textContent = message;
+      emptyStateEl.style.display = "flex";
+      chartEl.style.display = "none";
+    };
+
+    const hideEmpty = () => {
+      emptyStateEl.style.display = "none";
+      chartEl.style.display = "block";
+    };
+
+    const sortedBusRows = () => Object.values(baseCaseBusRowsByBusId)
+      .slice()
+      .sort((a, b) => {
+        const aNum = Number(a.__busId);
+        const bNum = Number(b.__busId);
+        if (Number.isFinite(aNum) && Number.isFinite(bNum)) {
+          return aNum - bNum;
+        }
+        return String(a.__busId || "").localeCompare(String(b.__busId || ""));
+      });
+
+    const sortedLineRows = () => Object.values(baseCaseFlowRowsByUid)
+      .slice()
+      .sort((a, b) => {
+        const aFrom = Number(a.__fromBus);
+        const bFrom = Number(b.__fromBus);
+        if (Number.isFinite(aFrom) && Number.isFinite(bFrom) && aFrom !== bFrom) {
+          return aFrom - bFrom;
+        }
+        const aTo = Number(a.__toBus);
+        const bTo = Number(b.__toBus);
+        if (Number.isFinite(aTo) && Number.isFinite(bTo) && aTo !== bTo) {
+          return aTo - bTo;
+        }
+        return String(a.__ckt || "").localeCompare(String(b.__ckt || ""));
+      });
+
+    const sortedGeneratorRows = () => Object.values(baseCaseGenRowsByBusAndMachine)
+      .slice()
+      .sort((a, b) => {
+        const aBus = Number(a.__busId);
+        const bBus = Number(b.__busId);
+        if (Number.isFinite(aBus) && Number.isFinite(bBus) && aBus !== bBus) {
+          return aBus - bBus;
+        }
+        return String(a.MachineID || "").localeCompare(String(b.MachineID || ""));
+      });
+
+    const getMetricValue = (row, metricKey) => {
+      if (metricKey === "busVoltage") {
+        return Number(row["Volt(pu)"]);
+      }
+      if (metricKey === "busAngle") {
+        return Number(row["Angle(deg)"]);
+      }
+      if (metricKey === "lineLoading") {
+        return Number(row["Loading_%"]);
+      }
+      if (metricKey === "lineActiveFlow") {
+        return Number(row["Pij(MW)"]);
+      }
+      if (metricKey === "lineReactiveFlow") {
+        return Number(row["Qij(MVAr)"]);
+      }
+      if (metricKey === "genActive") {
+        return Number(row["Pg(MW)"]);
+      }
+      if (metricKey === "genReactive") {
+        return Number(row["Qg(MVAr)"]);
+      }
+      return Number.NaN;
+    };
+
+    const getRowsByTab = (tabKey) => {
+      if (tabKey === "buses") {
+        return sortedBusRows();
+      }
+      if (tabKey === "lines") {
+        return sortedLineRows();
+      }
+      return sortedGeneratorRows();
+    };
+
+    const getXForRow = (tabKey, row) => {
+      if (tabKey === "buses") {
+        return row.__busId || row["Bus#"] || "";
+      }
+      if (tabKey === "lines") {
+        const from = row.__fromBus || row["FromBus#"] || "?";
+        const to = row.__toBus || row["ToBus#"] || "?";
+        const ckt = row.__ckt || row.CKT || "?";
+        return `${from}-${to} (${ckt})`;
+      }
+      const bus = row.__busId || "?";
+      const machine = row.__machineId || row.MachineID || "?";
+      return `${bus}|${machine}`;
+    };
+
+    const getHoverText = (tabKey, row) => {
+      if (tabKey === "buses") {
+        const busId = row.__busId || row["Bus#"] || "N/A";
+        const name = String(row.Name || "").trim() || "N/A";
+        const voltage = Number(row["Volt(pu)"]);
+        const angle = Number(row["Angle(deg)"]);
+        const voltageText = Number.isFinite(voltage) ? voltage.toFixed(4) : "N/A";
+        const angleText = Number.isFinite(angle) ? angle.toFixed(2) : "N/A";
+        return `Bus: ${busId}<br>Name: ${esc(name)}<br>Voltage: ${voltageText} p.u.<br>Angle: ${angleText} deg`;
+      }
+
+      if (tabKey === "lines") {
+        const from = row.__fromBus || row["FromBus#"] || "N/A";
+        const to = row.__toBus || row["ToBus#"] || "N/A";
+        const ckt = row.__ckt || row.CKT || "N/A";
+        const loading = Number(row["Loading_%"]);
+        const p = Number(row["Pij(MW)"]);
+        const q = Number(row["Qij(MVAr)"]);
+        return `From-To: ${from}-${to}<br>CKT: ${ckt}<br>Loading: ${Number.isFinite(loading) ? loading.toFixed(2) : "N/A"} %<br>Active Flow: ${Number.isFinite(p) ? p.toFixed(2) : "N/A"} MW<br>Reactive Flow: ${Number.isFinite(q) ? q.toFixed(2) : "N/A"} MVAr`;
+      }
+
+      const bus = row.__busId || "N/A";
+      const machine = row.__machineId || row.MachineID || "N/A";
+      const pg = Number(row["Pg(MW)"]);
+      const qg = Number(row["Qg(MVAr)"]);
+      return `Bus: ${bus}<br>Machine: ${machine}<br>Active Power: ${Number.isFinite(pg) ? pg.toFixed(2) : "N/A"} MW<br>Reactive Power: ${Number.isFinite(qg) ? qg.toFixed(2) : "N/A"} MVAr`;
+    };
+
+    const populateMetricOptions = () => {
+      const tab = tabByKey[activeTab];
+      metricSelect.innerHTML = "";
+      tab.metrics.forEach((metric) => {
+        const option = document.createElement("option");
+        option.value = metric.key;
+        option.textContent = metric.label;
+        metricSelect.appendChild(option);
+      });
+
+      if (!tab.metrics.some((metric) => metric.key === activeMetricByTab[activeTab])) {
+        activeMetricByTab[activeTab] = tab.metrics[0].key;
+      }
+      metricSelect.value = activeMetricByTab[activeTab];
+    };
+
+    const buildPlotData = () => {
+      const tab = tabByKey[activeTab];
+      const metric = metricByKey[activeMetricByTab[activeTab]];
+      const rows = getRowsByTab(activeTab);
+
+      const seriesRows = rows.filter((row) => Number.isFinite(getMetricValue(row, metric.key)));
+      const x = seriesRows.map((row) => getXForRow(activeTab, row));
+      const y = seriesRows.map((row) => getMetricValue(row, metric.key));
+      const hover = seriesRows.map((row) => getHoverText(activeTab, row));
+
+      return {
+        rowsCount: rows.length,
+        pointsCount: seriesRows.length,
+        x,
+        y,
+        hover,
+        yLabel: metric.yLabel,
+        xLabel: tab.xLabel,
+        title: `Base Case ${tab.label} - ${metric.label} (${selectedBaseCaseSeason})`,
+        itemLabelPlural: tab.itemLabelPlural,
+        metricKey: metric.key,
+        metricPrimaryColor: metric.primaryColor,
+        metricAccentColor: metric.accentColor
+      };
+    };
+
+    const renderPlot = async () => {
+      renderNonce += 1;
+      const nonce = renderNonce;
+      const payload = buildPlotData();
+
+      infoBar.textContent = `${payload.rowsCount} ${payload.itemLabelPlural} available • ${payload.pointsCount} plotted`;
+
+      if (!payload.pointsCount) {
+        try {
+          if (window.Plotly) {
+            window.Plotly.purge(chartEl);
+          }
+        } catch (_error) {
+          // Ignore purge errors.
+        }
+        showEmpty(`No values available for ${selectedBaseCaseSeason} (${payload.yLabel}).`);
+        return;
+      }
+
+      try {
+        await ensurePlotlyLoaded();
+      } catch (error) {
+        showEmpty(`Plotly could not be loaded (${error.message}).`);
+        return;
+      }
+
+      if (nonce !== renderNonce) {
+        return;
+      }
+
+      hideEmpty();
+
+      const dark = document.body.classList.contains("dark-mode");
+      const trace = {
+        x: payload.x,
+        y: payload.y,
+        type: "scattergl",
+        mode: "lines+markers",
+        hovertemplate: "%{text}<extra></extra>",
+        text: payload.hover,
+        marker: {
+          size: 6,
+          color: payload.metricAccentColor
+        },
+        line: {
+          width: 1.6,
+          color: payload.metricPrimaryColor
+        }
+      };
+
+      const layout = {
+        title: {
+          text: payload.title,
+          font: { size: 14 }
+        },
+        margin: { l: 62, r: 18, t: 44, b: 62 },
+        xaxis: {
+          title: payload.xLabel,
+          type: "category",
+          automargin: true,
+          tickangle: -45,
+          color: dark ? "#e5e7eb" : "#1f2937",
+          gridcolor: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"
+        },
+        yaxis: {
+          title: payload.yLabel,
+          automargin: true,
+          color: dark ? "#e5e7eb" : "#1f2937",
+          gridcolor: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"
+        },
+        plot_bgcolor: dark ? "#0f172a" : "#ffffff",
+        paper_bgcolor: dark ? "#1b2230" : "#ffffff",
+        font: {
+          color: dark ? "#e5e7eb" : "#111827",
+          family: "ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif"
+        },
+        hoverlabel: {
+          bgcolor: dark ? "#0f172a" : "#ffffff",
+          bordercolor: dark ? "#334155" : "#cbd5e1",
+          font: { color: dark ? "#e5e7eb" : "#0f172a" }
+        }
+      };
+
+      if (payload.metricKey === "busVoltage") {
+        const voltageLowerLimit = 0.95;
+        const voltageUpperLimit = 1.1;
+        const minSeries = Math.min(...payload.y, voltageLowerLimit);
+        const maxSeries = Math.max(...payload.y, voltageUpperLimit);
+        const pad = Math.max(0.005, (maxSeries - minSeries) * 0.05);
+
+        layout.yaxis.range = [minSeries - pad, maxSeries + pad];
+        layout.shapes = [
+          {
+            type: "line",
+            xref: "paper",
+            yref: "y",
+            x0: 0,
+            x1: 1,
+            y0: voltageUpperLimit,
+            y1: voltageUpperLimit,
+            line: {
+              color: dark ? "#fca5a5" : "#dc2626",
+              width: 1.6,
+              dash: "dash"
+            }
+          },
+          {
+            type: "line",
+            xref: "paper",
+            yref: "y",
+            x0: 0,
+            x1: 1,
+            y0: voltageLowerLimit,
+            y1: voltageLowerLimit,
+            line: {
+              color: dark ? "#fdba74" : "#ea580c",
+              width: 1.6,
+              dash: "dash"
+            }
+          }
+        ];
+
+        layout.annotations = [
+          {
+            xref: "paper",
+            yref: "y",
+            x: 0.995,
+            y: voltageUpperLimit,
+            xanchor: "right",
+            yanchor: "bottom",
+            text: `Vmax ${voltageUpperLimit.toFixed(2)}`,
+            showarrow: false,
+            bgcolor: dark ? "rgba(127, 29, 29, 0.7)" : "rgba(254, 226, 226, 0.88)",
+            bordercolor: dark ? "#ef4444" : "#dc2626",
+            borderwidth: 1,
+            font: {
+              size: 11,
+              color: dark ? "#fee2e2" : "#7f1d1d"
+            }
+          },
+          {
+            xref: "paper",
+            yref: "y",
+            x: 0.995,
+            y: voltageLowerLimit,
+            xanchor: "right",
+            yanchor: "top",
+            text: `Vmin ${voltageLowerLimit.toFixed(2)}`,
+            showarrow: false,
+            bgcolor: dark ? "rgba(124, 45, 18, 0.72)" : "rgba(255, 237, 213, 0.9)",
+            bordercolor: dark ? "#f97316" : "#ea580c",
+            borderwidth: 1,
+            font: {
+              size: 11,
+              color: dark ? "#ffedd5" : "#7c2d12"
+            }
+          }
+        ];
+      }
+
+      const config = {
+        responsive: true,
+        displaylogo: false,
+        modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"],
+        toImageButtonOptions: {
+          filename: `base_case_${activeTab}_${payload.metricKey}_${selectedBaseCaseSeason}`
+        }
+      };
+
+      await window.Plotly.react(chartEl, [trace], layout, config);
+      window.Plotly.Plots.resize(chartEl);
+    };
+
+    const switchTab = (tab) => {
+      activeTab = tab;
+      tabDefs.forEach(({ key }) => {
+        tabBtns[key].classList.toggle("active", key === tab);
+      });
+      populateMetricOptions();
+      renderPlot();
+    };
+
+    tabDefs.forEach(({ key }) => {
+      tabBtns[key].addEventListener("click", () => switchTab(key));
+    });
+
+    metricSelect.addEventListener("change", () => {
+      activeMetricByTab[activeTab] = metricSelect.value;
+      renderPlot();
+    });
+
+    closeBtn.addEventListener("click", () => {
+      overlay.style.display = "none";
+    });
+
+    overlay.addEventListener("wheel", (e) => e.stopPropagation(), { passive: true });
+    overlay.addEventListener("dblclick", (e) => e.stopPropagation());
+
+    const resizeHandle = document.createElement("div");
+    resizeHandle.className = "bc-data-panel-resize";
+    overlay.appendChild(resizeHandle);
+
+    resizeHandle.addEventListener("mousedown", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startW = overlay.offsetWidth;
+      const startH = overlay.offsetHeight;
+
+      const onMove = (mv) => {
+        const newW = Math.max(520, startW + (mv.clientX - startX));
+        const newH = Math.max(360, startH + (mv.clientY - startY));
+        overlay.style.width = `${newW}px`;
+        overlay.style.height = `${newH}px`;
+        if (window.Plotly && chartEl.style.display !== "none") {
+          window.Plotly.Plots.resize(chartEl);
+        }
+      };
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+
+    header.addEventListener("mousedown", (e) => {
+      if (e.target === closeBtn) {
+        return;
+      }
+      e.stopPropagation();
+      e.preventDefault();
+
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startLeft = overlay.offsetLeft;
+      const startTop = overlay.offsetTop;
+
+      overlay.classList.add("is-dragging");
+
+      const onMove = (mv) => {
+        overlay.style.left = `${startLeft + (mv.clientX - startX)}px`;
+        overlay.style.top = `${startTop + (mv.clientY - startY)}px`;
+      };
+
+      const onUp = () => {
+        overlay.classList.remove("is-dragging");
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+
+    overlay.addEventListener("mousedown", (e) => e.stopPropagation());
+
+    return {
+      show(tab) {
+        overlay.style.transform = "";
+        overlay.style.display = "flex";
+        const parentW = mapContainer.offsetWidth;
+        const panelW = overlay.offsetWidth;
+        overlay.style.left = `${Math.max(0, Math.round((parentW - panelW) / 2))}px`;
+        overlay.style.top = "52px";
+        switchTab(tab || activeTab);
+      },
+      hide() {
+        overlay.style.display = "none";
+      },
+      refresh() {
+        if (overlay.style.display !== "none") {
+          populateMetricOptions();
+          renderPlot();
+        }
+      }
+    };
+  };
+
+  const createContingencyPlotPanel = (mapContainer) => {
+    const overlay = document.createElement("div");
+    overlay.className = "bc-data-panel bc-plot-panel";
+    overlay.style.display = "none";
+    mapContainer.appendChild(overlay);
+
+    const header = document.createElement("div");
+    header.className = "bc-data-panel-header";
+    overlay.appendChild(header);
+
+    const titleEl = document.createElement("span");
+    titleEl.className = "bc-data-panel-title";
+    titleEl.textContent = "Contingency Plots";
+    header.appendChild(titleEl);
+
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "bc-data-panel-close";
+    closeBtn.type = "button";
+    closeBtn.title = "Close";
+    closeBtn.textContent = "✕";
+    header.appendChild(closeBtn);
+
+    const tabsBar = document.createElement("div");
+    tabsBar.className = "bc-data-panel-tabs";
+    overlay.appendChild(tabsBar);
+
+    const tabDefs = [
+      {
+        key: "buses",
+        label: "Buses",
+        xLabel: "Bus #",
+        itemLabelPlural: "buses",
+        metrics: [
+          { key: "busVoltage", label: "Voltage", yLabel: "Voltage (p.u.)", primaryColor: "#2563eb", accentColor: "#10b981" },
+          { key: "busAngle", label: "Angle", yLabel: "Angle (deg)", primaryColor: "#f97316", accentColor: "#f59e0b" }
+        ]
+      },
+      {
+        key: "lines",
+        label: "Lines",
+        xLabel: "Line (From-To CKT)",
+        itemLabelPlural: "lines",
+        metrics: [
+          { key: "lineLoading", label: "Loading", yLabel: "Loading (%)", primaryColor: "#dc2626", accentColor: "#f97316" },
+          { key: "lineActiveFlow", label: "Active Flow From-To", yLabel: "Active Flow i-j (MW)", primaryColor: "#7c3aed", accentColor: "#a855f7" },
+          { key: "lineReactiveFlow", label: "Reactive Flow From-To", yLabel: "Reactive Flow i-j (MVAr)", primaryColor: "#0891b2", accentColor: "#06b6d4" }
+        ]
+      },
+      {
+        key: "generators",
+        label: "Generators",
+        xLabel: "Generator (Bus|Machine)",
+        itemLabelPlural: "generators",
+        metrics: [
+          { key: "genActive", label: "Active Power", yLabel: "Active Power (MW)", primaryColor: "#2563eb", accentColor: "#3b82f6" },
+          { key: "genReactive", label: "Reactive Power", yLabel: "Reactive Power (MVAr)", primaryColor: "#0f766e", accentColor: "#14b8a6" }
+        ]
+      }
+    ];
+
+    const tabByKey = Object.fromEntries(tabDefs.map((tab) => [tab.key, tab]));
+    const metricByKey = {};
+    tabDefs.forEach((tab) => {
+      tab.metrics.forEach((metric) => {
+        metricByKey[metric.key] = metric;
+      });
+    });
+
+    let activeTab = tabDefs[0].key;
+    const activeMetricByTab = {
+      buses: "busVoltage",
+      lines: "lineLoading",
+      generators: "genActive"
+    };
+
+    const tabBtns = {};
+    tabDefs.forEach(({ key, label }) => {
+      const btn = document.createElement("button");
+      btn.className = `bc-data-tab${key === activeTab ? " active" : ""}`;
+      btn.type = "button";
+      btn.textContent = label;
+      tabBtns[key] = btn;
+      tabsBar.appendChild(btn);
+    });
+
+    const contentWrap = document.createElement("div");
+    contentWrap.className = "bc-plot-content";
+    overlay.appendChild(contentWrap);
+
+    const controlsRow = document.createElement("div");
+    controlsRow.className = "bc-plot-controls";
+    contentWrap.appendChild(controlsRow);
+
+    const metricLabelEl = document.createElement("label");
+    metricLabelEl.className = "bc-plot-controls-label";
+    metricLabelEl.textContent = "Metric";
+    metricLabelEl.setAttribute("for", "ca-plot-metric-select");
+    controlsRow.appendChild(metricLabelEl);
+
+    const metricSelect = document.createElement("select");
+    metricSelect.className = "bc-plot-metric-select";
+    metricSelect.id = "ca-plot-metric-select";
+    controlsRow.appendChild(metricSelect);
+
+    const infoBar = document.createElement("div");
+    infoBar.className = "bc-plot-info";
+    contentWrap.appendChild(infoBar);
+
+    const chartWrap = document.createElement("div");
+    chartWrap.className = "bc-plot-chart-wrap";
+    contentWrap.appendChild(chartWrap);
+
+    const chartEl = document.createElement("div");
+    chartEl.className = "bc-plot-chart";
+    chartWrap.appendChild(chartEl);
+
+    const emptyStateEl = document.createElement("div");
+    emptyStateEl.className = "bc-plot-empty";
+    emptyStateEl.style.display = "none";
+    chartWrap.appendChild(emptyStateEl);
+
+    let renderNonce = 0;
+
+    const showEmpty = (message) => {
+      emptyStateEl.textContent = message;
+      emptyStateEl.style.display = "flex";
+      chartEl.style.display = "none";
+    };
+
+    const hideEmpty = () => {
+      emptyStateEl.style.display = "none";
+      chartEl.style.display = "block";
+    };
+
+    const sortedBusRows = () => Object.values(activeBusRowsByBusId)
+      .slice()
+      .sort((a, b) => {
+        const aNum = Number(a.__busId);
+        const bNum = Number(b.__busId);
+        if (Number.isFinite(aNum) && Number.isFinite(bNum)) {
+          return aNum - bNum;
+        }
+        return String(a.__busId || "").localeCompare(String(b.__busId || ""));
+      });
+
+    const sortedLineRows = () => Object.values(activeFlowRowsByUid)
+      .slice()
+      .sort((a, b) => {
+        const aFrom = Number(a.__fromBus);
+        const bFrom = Number(b.__fromBus);
+        if (Number.isFinite(aFrom) && Number.isFinite(bFrom) && aFrom !== bFrom) {
+          return aFrom - bFrom;
+        }
+        const aTo = Number(a.__toBus);
+        const bTo = Number(b.__toBus);
+        if (Number.isFinite(aTo) && Number.isFinite(bTo) && aTo !== bTo) {
+          return aTo - bTo;
+        }
+        return String(a.__ckt || "").localeCompare(String(b.__ckt || ""));
+      });
+
+    const sortedGeneratorRows = () => Object.values(activeGenRowsByBusAndMachine)
+      .slice()
+      .sort((a, b) => {
+        const aBus = Number(a.__busId);
+        const bBus = Number(b.__busId);
+        if (Number.isFinite(aBus) && Number.isFinite(bBus) && aBus !== bBus) {
+          return aBus - bBus;
+        }
+        return String(a.MachineID || "").localeCompare(String(b.MachineID || ""));
+      });
+
+    const getMetricValue = (row, metricKey) => {
+      if (metricKey === "busVoltage") {
+        return Number(row["Volt(pu)"]);
+      }
+      if (metricKey === "busAngle") {
+        return Number(row["Angle(deg)"]);
+      }
+      if (metricKey === "lineLoading") {
+        return Number(row["Loading_%"]);
+      }
+      if (metricKey === "lineActiveFlow") {
+        return Number(row["Pij(MW)"]);
+      }
+      if (metricKey === "lineReactiveFlow") {
+        return Number(row["Qij(MVAr)"]);
+      }
+      if (metricKey === "genActive") {
+        return Number(row["Pg(MW)"]);
+      }
+      if (metricKey === "genReactive") {
+        return Number(row["Qg(MVAr)"]);
+      }
+      return Number.NaN;
+    };
+
+    const getRowsByTab = (tabKey) => {
+      if (tabKey === "buses") {
+        return sortedBusRows();
+      }
+      if (tabKey === "lines") {
+        return sortedLineRows();
+      }
+      return sortedGeneratorRows();
+    };
+
+    const getXForRow = (tabKey, row) => {
+      if (tabKey === "buses") {
+        return row.__busId || row["Bus#"] || "";
+      }
+      if (tabKey === "lines") {
+        const from = row.__fromBus || row["FromBus#"] || "?";
+        const to = row.__toBus || row["ToBus#"] || "?";
+        const ckt = row.__ckt || row.CKT || "?";
+        return `${from}-${to} (${ckt})`;
+      }
+      const bus = row.__busId || "?";
+      const machine = row.__machineId || row.MachineID || "?";
+      return `${bus}|${machine}`;
+    };
+
+    const getHoverText = (tabKey, row) => {
+      if (tabKey === "buses") {
+        const busId = row.__busId || row["Bus#"] || "N/A";
+        const name = String(row.Name || "").trim() || "N/A";
+        const voltage = Number(row["Volt(pu)"]);
+        const angle = Number(row["Angle(deg)"]);
+        const voltageText = Number.isFinite(voltage) ? voltage.toFixed(4) : "N/A";
+        const angleText = Number.isFinite(angle) ? angle.toFixed(2) : "N/A";
+        return `Bus: ${busId}<br>Name: ${esc(name)}<br>Voltage: ${voltageText} p.u.<br>Angle: ${angleText} deg`;
+      }
+
+      if (tabKey === "lines") {
+        const from = row.__fromBus || row["FromBus#"] || "N/A";
+        const to = row.__toBus || row["ToBus#"] || "N/A";
+        const ckt = row.__ckt || row.CKT || "N/A";
+        const loading = Number(row["Loading_%"]);
+        const p = Number(row["Pij(MW)"]);
+        const q = Number(row["Qij(MVAr)"]);
+        return `From-To: ${from}-${to}<br>CKT: ${ckt}<br>Loading: ${Number.isFinite(loading) ? loading.toFixed(2) : "N/A"} %<br>Active Flow: ${Number.isFinite(p) ? p.toFixed(2) : "N/A"} MW<br>Reactive Flow: ${Number.isFinite(q) ? q.toFixed(2) : "N/A"} MVAr`;
+      }
+
+      const bus = row.__busId || "N/A";
+      const machine = row.__machineId || row.MachineID || "N/A";
+      const pg = Number(row["Pg(MW)"]);
+      const qg = Number(row["Qg(MVAr)"]);
+      return `Bus: ${bus}<br>Machine: ${machine}<br>Active Power: ${Number.isFinite(pg) ? pg.toFixed(2) : "N/A"} MW<br>Reactive Power: ${Number.isFinite(qg) ? qg.toFixed(2) : "N/A"} MVAr`;
+    };
+
+    const populateMetricOptions = () => {
+      const tab = tabByKey[activeTab];
+      metricSelect.innerHTML = "";
+      tab.metrics.forEach((metric) => {
+        const option = document.createElement("option");
+        option.value = metric.key;
+        option.textContent = metric.label;
+        metricSelect.appendChild(option);
+      });
+
+      if (!tab.metrics.some((metric) => metric.key === activeMetricByTab[activeTab])) {
+        activeMetricByTab[activeTab] = tab.metrics[0].key;
+      }
+      metricSelect.value = activeMetricByTab[activeTab];
+    };
+
+    const buildPlotData = () => {
+      const tab = tabByKey[activeTab];
+      const metric = metricByKey[activeMetricByTab[activeTab]];
+      const rows = getRowsByTab(activeTab);
+
+      const seriesRows = rows.filter((row) => Number.isFinite(getMetricValue(row, metric.key)));
+      const x = seriesRows.map((row) => getXForRow(activeTab, row));
+      const y = seriesRows.map((row) => getMetricValue(row, metric.key));
+      const hover = seriesRows.map((row) => getHoverText(activeTab, row));
+      const contingencyLabel = selectedContingencyUid || "N/A";
+      const seasonLabel = selectedContingencySeason || "N/A";
+
+      return {
+        rowsCount: rows.length,
+        pointsCount: seriesRows.length,
+        x,
+        y,
+        hover,
+        yLabel: metric.yLabel,
+        xLabel: tab.xLabel,
+        title: `Contingency ${tab.label} - ${metric.label} (${contingencyLabel}, ${seasonLabel})`,
+        itemLabelPlural: tab.itemLabelPlural,
+        metricKey: metric.key,
+        metricPrimaryColor: metric.primaryColor,
+        metricAccentColor: metric.accentColor,
+        contingencyLabel,
+        seasonLabel
+      };
+    };
+
+    const renderPlot = async () => {
+      renderNonce += 1;
+      const nonce = renderNonce;
+      const payload = buildPlotData();
+
+      infoBar.textContent = `${payload.rowsCount} ${payload.itemLabelPlural} available • ${payload.pointsCount} plotted`;
+
+      if (!payload.pointsCount) {
+        try {
+          if (window.Plotly) {
+            window.Plotly.purge(chartEl);
+          }
+        } catch (_error) {
+          // Ignore purge errors.
+        }
+        showEmpty(`No values available for ${payload.contingencyLabel} (${payload.seasonLabel}, ${payload.yLabel}).`);
+        return;
+      }
+
+      try {
+        await ensurePlotlyLoaded();
+      } catch (error) {
+        showEmpty(`Plotly could not be loaded (${error.message}).`);
+        return;
+      }
+
+      if (nonce !== renderNonce) {
+        return;
+      }
+
+      hideEmpty();
+
+      const dark = document.body.classList.contains("dark-mode");
+      const trace = {
+        x: payload.x,
+        y: payload.y,
+        type: "scattergl",
+        mode: "lines+markers",
+        hovertemplate: "%{text}<extra></extra>",
+        text: payload.hover,
+        marker: {
+          size: 6,
+          color: payload.metricAccentColor
+        },
+        line: {
+          width: 1.6,
+          color: payload.metricPrimaryColor
+        }
+      };
+
+      const layout = {
+        title: {
+          text: payload.title,
+          font: { size: 14 }
+        },
+        margin: { l: 62, r: 18, t: 44, b: 62 },
+        xaxis: {
+          title: payload.xLabel,
+          type: "category",
+          automargin: true,
+          tickangle: -45,
+          color: dark ? "#e5e7eb" : "#1f2937",
+          gridcolor: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"
+        },
+        yaxis: {
+          title: payload.yLabel,
+          automargin: true,
+          color: dark ? "#e5e7eb" : "#1f2937",
+          gridcolor: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"
+        },
+        plot_bgcolor: dark ? "#0f172a" : "#ffffff",
+        paper_bgcolor: dark ? "#1b2230" : "#ffffff",
+        font: {
+          color: dark ? "#e5e7eb" : "#111827",
+          family: "ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif"
+        },
+        hoverlabel: {
+          bgcolor: dark ? "#0f172a" : "#ffffff",
+          bordercolor: dark ? "#334155" : "#cbd5e1",
+          font: { color: dark ? "#e5e7eb" : "#0f172a" }
+        }
+      };
+
+      if (payload.metricKey === "busVoltage") {
+        const voltageLowerLimit = 0.95;
+        const voltageUpperLimit = 1.1;
+        const minSeries = Math.min(...payload.y, voltageLowerLimit);
+        const maxSeries = Math.max(...payload.y, voltageUpperLimit);
+        const pad = Math.max(0.005, (maxSeries - minSeries) * 0.05);
+
+        layout.yaxis.range = [minSeries - pad, maxSeries + pad];
+        layout.shapes = [
+          {
+            type: "line",
+            xref: "paper",
+            yref: "y",
+            x0: 0,
+            x1: 1,
+            y0: voltageUpperLimit,
+            y1: voltageUpperLimit,
+            line: {
+              color: dark ? "#fca5a5" : "#dc2626",
+              width: 1.6,
+              dash: "dash"
+            }
+          },
+          {
+            type: "line",
+            xref: "paper",
+            yref: "y",
+            x0: 0,
+            x1: 1,
+            y0: voltageLowerLimit,
+            y1: voltageLowerLimit,
+            line: {
+              color: dark ? "#fdba74" : "#ea580c",
+              width: 1.6,
+              dash: "dash"
+            }
+          }
+        ];
+
+        layout.annotations = [
+          {
+            xref: "paper",
+            yref: "y",
+            x: 0.995,
+            y: voltageUpperLimit,
+            xanchor: "right",
+            yanchor: "bottom",
+            text: `Vmax ${voltageUpperLimit.toFixed(2)}`,
+            showarrow: false,
+            bgcolor: dark ? "rgba(127, 29, 29, 0.7)" : "rgba(254, 226, 226, 0.88)",
+            bordercolor: dark ? "#ef4444" : "#dc2626",
+            borderwidth: 1,
+            font: {
+              size: 11,
+              color: dark ? "#fee2e2" : "#7f1d1d"
+            }
+          },
+          {
+            xref: "paper",
+            yref: "y",
+            x: 0.995,
+            y: voltageLowerLimit,
+            xanchor: "right",
+            yanchor: "top",
+            text: `Vmin ${voltageLowerLimit.toFixed(2)}`,
+            showarrow: false,
+            bgcolor: dark ? "rgba(124, 45, 18, 0.72)" : "rgba(255, 237, 213, 0.9)",
+            bordercolor: dark ? "#f97316" : "#ea580c",
+            borderwidth: 1,
+            font: {
+              size: 11,
+              color: dark ? "#ffedd5" : "#7c2d12"
+            }
+          }
+        ];
+      }
+
+      const config = {
+        responsive: true,
+        displaylogo: false,
+        modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"],
+        toImageButtonOptions: {
+          filename: `contingency_${activeTab}_${payload.metricKey}_${payload.contingencyLabel}_${payload.seasonLabel}`
+        }
+      };
+
+      await window.Plotly.react(chartEl, [trace], layout, config);
+      window.Plotly.Plots.resize(chartEl);
+    };
+
+    const switchTab = (tab) => {
+      activeTab = tab;
+      tabDefs.forEach(({ key }) => {
+        tabBtns[key].classList.toggle("active", key === tab);
+      });
+      populateMetricOptions();
+      renderPlot();
+    };
+
+    tabDefs.forEach(({ key }) => {
+      tabBtns[key].addEventListener("click", () => switchTab(key));
+    });
+
+    metricSelect.addEventListener("change", () => {
+      activeMetricByTab[activeTab] = metricSelect.value;
+      renderPlot();
+    });
+
+    closeBtn.addEventListener("click", () => {
+      overlay.style.display = "none";
+    });
+
+    overlay.addEventListener("wheel", (e) => e.stopPropagation(), { passive: true });
+    overlay.addEventListener("dblclick", (e) => e.stopPropagation());
+
+    const resizeHandle = document.createElement("div");
+    resizeHandle.className = "bc-data-panel-resize";
+    overlay.appendChild(resizeHandle);
+
+    resizeHandle.addEventListener("mousedown", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startW = overlay.offsetWidth;
+      const startH = overlay.offsetHeight;
+
+      const onMove = (mv) => {
+        const newW = Math.max(520, startW + (mv.clientX - startX));
+        const newH = Math.max(360, startH + (mv.clientY - startY));
+        overlay.style.width = `${newW}px`;
+        overlay.style.height = `${newH}px`;
+        if (window.Plotly && chartEl.style.display !== "none") {
+          window.Plotly.Plots.resize(chartEl);
+        }
+      };
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+
+    header.addEventListener("mousedown", (e) => {
+      if (e.target === closeBtn) {
+        return;
+      }
+      e.stopPropagation();
+      e.preventDefault();
+
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startLeft = overlay.offsetLeft;
+      const startTop = overlay.offsetTop;
+
+      overlay.classList.add("is-dragging");
+
+      const onMove = (mv) => {
+        overlay.style.left = `${startLeft + (mv.clientX - startX)}px`;
+        overlay.style.top = `${startTop + (mv.clientY - startY)}px`;
+      };
+
+      const onUp = () => {
+        overlay.classList.remove("is-dragging");
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+
+    overlay.addEventListener("mousedown", (e) => e.stopPropagation());
+
+    return {
+      show(tab) {
+        overlay.style.transform = "";
+        overlay.style.display = "flex";
+        const parentW = mapContainer.offsetWidth;
+        const panelW = overlay.offsetWidth;
+        overlay.style.left = `${Math.max(0, Math.round((parentW - panelW) / 2))}px`;
+        overlay.style.top = "52px";
+        switchTab(tab || activeTab);
+      },
+      hide() {
+        overlay.style.display = "none";
+      },
+      refresh() {
+        if (overlay.style.display !== "none") {
+          populateMetricOptions();
+          renderPlot();
+        }
+      }
+    };
+  };
+
   const initializeMap = async () => {
     const [busGeo, branchGeo, genGeo, genConnGeo, lineNameRows] = await Promise.all([
       readGeoJson("bus"),
@@ -3456,6 +4669,9 @@
         refreshLineHighlight();
         refreshBusColors();
         refreshGeneratorColors();
+        if (contingencyPlotPanelRef) {
+          contingencyPlotPanelRef.refresh();
+        }
         return;
       }
 
@@ -3494,6 +4710,9 @@
       if (contingencyDataPanelRef) {
         contingencyDataPanelRef.refresh();
       }
+      if (contingencyPlotPanelRef) {
+        contingencyPlotPanelRef.refresh();
+      }
     };
 
     const applyMetricSelection = () => {
@@ -3522,6 +4741,9 @@
       await loadBaseCaseData(season);
       if (baseCaseDataPanelRef) {
         baseCaseDataPanelRef.refresh();
+      }
+      if (baseCasePlotPanelRef) {
+        baseCasePlotPanelRef.refresh();
       }
       refreshFlowAnimationControlState();
       refreshMetricButtonsState();
@@ -3661,9 +4883,28 @@
       }
     }).addTo(map);
 
-    createContingencyControl(branchGeo, lineNameByUid, applyContingencySelection, applyMetricSelection);
+    createContingencyControl(
+      branchGeo,
+      lineNameByUid,
+      applyContingencySelection,
+      applyMetricSelection,
+      () => {
+        if (contingencyPlotPanelRef) {
+          contingencyPlotPanelRef.show();
+        }
+      }
+    );
     contingencyDataPanelRef = createContingencyDataPanel(map.getContainer());
-    createBaseCaseControl(applyBaseCaseSeasonChange, applyBaseCaseMetricSelection);
+    contingencyPlotPanelRef = createContingencyPlotPanel(map.getContainer());
+    createBaseCaseControl(
+      applyBaseCaseSeasonChange,
+      applyBaseCaseMetricSelection,
+      () => {
+        if (baseCasePlotPanelRef) {
+          baseCasePlotPanelRef.show();
+        }
+      }
+    );
 
     // Pre-load default base case season data
     loadBaseCaseData(selectedBaseCaseSeason).then(() => {
@@ -3671,6 +4912,7 @@
     });
 
     baseCaseDataPanelRef = createBaseCaseDataPanel(map.getContainer());
+    baseCasePlotPanelRef = createBaseCasePlotPanel(map.getContainer());
 
     genConnLayer = L.geoJSON(genConnGeo, {
       style: () => ({ color: "#000000", weight: 2, opacity: 0.95, dashArray: "6,6" }),

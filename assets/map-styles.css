@@ -428,9 +428,19 @@ body.dark-mode .line-color-legend-gradient {
 }
 
 /* ---- Base Case Show Data button ---- */
+.control-actions-card {
+  margin-top: 10px;
+  padding: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 8px;
+  background: #f8fafc;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
 .bc-show-data-btn {
   width: 100%;
-  margin-top: 10px;
   border: 1px solid rgba(0, 0, 0, 0.28);
   border-radius: 6px;
   padding: 7px 8px;
@@ -445,6 +455,33 @@ body.dark-mode .line-color-legend-gradient {
   background: #bae6fd;
 }
 
+.bc-plot-data-btn {
+  width: 100%;
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  border-radius: 6px;
+  padding: 7px 8px;
+  font: 700 12px/1.2 sans-serif;
+  background: #ede9fe;
+  color: #5b21b6;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.bc-plot-data-btn:hover {
+  background: #ddd6fe;
+}
+
+.bc-plot-data-btn:disabled,
+.bc-show-data-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+body.dark-mode .control-actions-card {
+  background: #0f172a;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
 body.dark-mode .bc-show-data-btn {
   background: #0c4a6e;
   border-color: rgba(255, 255, 255, 0.3);
@@ -453,6 +490,16 @@ body.dark-mode .bc-show-data-btn {
 
 body.dark-mode .bc-show-data-btn:hover {
   background: #075985;
+}
+
+body.dark-mode .bc-plot-data-btn {
+  background: #4c1d95;
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #e9d5ff;
+}
+
+body.dark-mode .bc-plot-data-btn:hover {
+  background: #5b21b6;
 }
 
 .flow-animation-control {
@@ -821,4 +868,111 @@ body.dark-mode .bc-data-table td {
 
 body.dark-mode .bc-data-table tbody tr:hover td {
   background: rgba(134, 239, 172, 0.06);
+}
+
+/* ---- Base Case Plot Panel ---- */
+.bc-plot-panel {
+  min-width: 520px;
+  min-height: 360px;
+  height: 70vh;
+}
+
+.bc-plot-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  flex: 1;
+  min-height: 0;
+}
+
+.bc-plot-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.bc-plot-controls-label {
+  font: 700 12px/1.2 sans-serif;
+  color: #334155;
+}
+
+.bc-plot-metric-select {
+  min-width: 220px;
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: 600 12px/1.2 sans-serif;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.bc-plot-metric-select:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
+}
+
+.bc-plot-info {
+  font: 600 12px/1.3 sans-serif;
+  color: #475569;
+  flex-shrink: 0;
+}
+
+.bc-plot-chart-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.bc-plot-chart {
+  width: 100%;
+  height: 100%;
+}
+
+.bc-plot-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 16px;
+  font: 600 13px/1.35 sans-serif;
+  color: #64748b;
+  background: #f8fafc;
+}
+
+body.dark-mode .bc-plot-info {
+  color: #cbd5e1;
+}
+
+body.dark-mode .bc-plot-controls-label {
+  color: #cbd5e1;
+}
+
+body.dark-mode .bc-plot-metric-select {
+  background: #111827;
+  color: #e5e7eb;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+body.dark-mode .bc-plot-metric-select:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
+}
+
+body.dark-mode .bc-plot-chart-wrap {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: #0f172a;
+}
+
+body.dark-mode .bc-plot-empty {
+  color: #cbd5e1;
+  background: #0f172a;
 }
