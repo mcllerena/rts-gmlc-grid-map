@@ -966,12 +966,22 @@
       return `rgb(${r}, ${g}, ${b})`;
     }
 
-    const low = [173, 216, 230];
-    const high = [239, 68, 68];
-
-    const r = Math.round(low[0] + (high[0] - low[0]) * t);
-    const g = Math.round(low[1] + (high[1] - low[1]) * t);
-    const b = Math.round(low[2] + (high[2] - low[2]) * t);
+    // Pale green → orange ramp for genActive / genReactive
+    const stops = [
+      [217, 240, 163],  // pale green   #d9f0a3
+      [173, 221, 142],  // light green  #addd8e
+      [254, 227, 145],  // pale yellow  #fee391
+      [254, 153, 41],   // orange       #fe9929
+      [217, 95, 14]     // dark orange  #d95f0e
+    ];
+    const seg = t * (stops.length - 1);
+    const idx = Math.min(Math.floor(seg), stops.length - 2);
+    const tt = seg - idx;
+    const s0 = stops[idx];
+    const s1 = stops[idx + 1];
+    const r = Math.round(s0[0] + (s1[0] - s0[0]) * tt);
+    const g = Math.round(s0[1] + (s1[1] - s0[1]) * tt);
+    const b = Math.round(s0[2] + (s1[2] - s0[2]) * tt);
     return `rgb(${r}, ${g}, ${b})`;
   };
 
@@ -1928,13 +1938,10 @@
     if (metric === "loading" || metric === "lineFlow") {
       return "linear-gradient(to top, #3b82f6 0%, #22c55e 33%, #facc15 67%, #ef4444 100%)";
     }
-    if (metric === "genActive") {
-      return "linear-gradient(to top, #add8e6 0%, #ef4444 100%)";
+    if (metric === "genActive" || metric === "genReactive") {
+      return "linear-gradient(to top, #d9f0a3 0%, #addd8e 25%, #fee391 50%, #fe9929 75%, #d95f0e 100%)";
     }
-    if (metric === "genReactive") {
-      return "linear-gradient(to top, #add8e6 0%, #ef4444 100%)";
-    }
-    return "linear-gradient(to top, #add8e6 0%, #ef4444 100%)";
+    return "linear-gradient(to top, #d9f0a3 0%, #addd8e 25%, #fee391 50%, #fe9929 75%, #d95f0e 100%)";
   };
 
   const legendSectionHtml = (metric) => {
