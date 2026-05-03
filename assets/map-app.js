@@ -380,14 +380,32 @@
     });
   };
 
+  // Color lines by stress (|Pij|/RateA, 0–150 %) when metric is lineFlow,
+  // so colors reflect actual loading rather than raw MW magnitude.
+  const lineFlowStressColor = (row) => {
+    const p = Math.abs(Number(row && row["Pij(MW)"]));
+    const rate = Number(row && row.RateA);
+    if (!Number.isFinite(p) || !Number.isFinite(rate) || rate <= 0) {
+      return null;
+    }
+    return colorForMetricValue(p / rate * 100, 0, 150, "loading");
+  };
+
   const lineStyleForFeature = (feature) => {
     const uid = String((feature && feature.properties && feature.properties.UID) || "");
     if (currentViewMode === "contingency" && activeContingencyConverged && (activeLineMetric === "loading" || activeLineMetric === "lineFlow")) {
       const value = getMetricValueForUid(uid, activeLineMetric);
       if (Number.isFinite(value)) {
-        const { min, max } = getMetricRange(activeLineMetric);
+        let color;
+        if (activeLineMetric === "lineFlow") {
+          color = lineFlowStressColor(activeFlowRowsByUid[uid]);
+        }
+        if (!color) {
+          const { min, max } = getMetricRange(activeLineMetric);
+          color = colorForMetricValue(value, min, max, activeLineMetric);
+        }
         return {
-          color: colorForMetricValue(value, min, max, activeLineMetric),
+          color,
           weight: 3.2,
           opacity: 0.95,
           dashArray: ""
@@ -399,19 +417,26 @@
       const row = baseCaseFlowRowsByUid[uid];
       const value = getMetricValueForRow(row, activeBaseCaseLineMetric);
       if (Number.isFinite(value)) {
-        let min;
-        let max;
-        if (activeBaseCaseLineMetric === "loading") {
-          min = 0;
-          max = 150;
-        } else {
-          const sourceRows = Object.values(baseCaseFlowRowsByUid);
-          const values = sourceRows.map((r) => getMetricValueForRow(r, activeBaseCaseLineMetric)).filter((v) => Number.isFinite(v));
-          min = values.length ? Math.floor(Math.min(...values)) : 0;
-          max = values.length ? Math.ceil(Math.max(...values)) : 1;
+        let color;
+        if (activeBaseCaseLineMetric === "lineFlow") {
+          color = lineFlowStressColor(row);
+        }
+        if (!color) {
+          let min;
+          let max;
+          if (activeBaseCaseLineMetric === "loading") {
+            min = 0;
+            max = 150;
+          } else {
+            const sourceRows = Object.values(baseCaseFlowRowsByUid);
+            const values = sourceRows.map((r) => getMetricValueForRow(r, activeBaseCaseLineMetric)).filter((v) => Number.isFinite(v));
+            min = values.length ? Math.floor(Math.min(...values)) : 0;
+            max = values.length ? Math.ceil(Math.max(...values)) : 1;
+          }
+          color = colorForMetricValue(value, min, max, activeBaseCaseLineMetric);
         }
         return {
-          color: colorForMetricValue(value, min, max, activeBaseCaseLineMetric),
+          color,
           weight: 3.2,
           opacity: 0.95,
           dashArray: ""
@@ -866,8 +891,8 @@
   const getMetricValueForBusId = (busId, metric) => getMetricValueForRow(activeBusRowsByBusId[busId], metric);
 
   const getMetricRange = (metric) => {
-    // Loading always uses a fixed 0–150% scale
-    if (metric === "loading") {
+    // Loading and lineFlow always use a fixed 0–150 % scale
+    if (metric === "loading" || metric === "lineFlow") {
       return { min: 0, max: 150 };
     }
 
@@ -913,76 +938,65 @@
     };
   };
 
+  // Julia-aligned color stops: each entry is [normalized_position_in_[0,1], [r,g,b]].
+  // Voltage stops are anchored as if VMIN=0.90, VMID=1.00, VMAX=1.10 (Julia
+  // DEFAULT_VOLTAGE_MAP_RANGE).  Loading stops are anchored at 0/60/80/100/150 %.
+  const VOLTAGE_COLOR_STOPS = [
+    [0.00, [  0,  50, 200]],   // 0.90 pu — deep blue
+    [0.15, [ 30, 160, 255]],   // 0.93 pu — sky blue
+    [0.35, [  0, 210, 200]],   // 0.97 pu — cyan/teal
+    [0.50, [ 40, 200,  60]],   // 1.00 pu — green (nominal)
+    [0.65, [160, 210,   0]],   // 1.03 pu — yellow-green
+    [0.85, [255, 160,   0]],   // 1.07 pu — orange
+    [1.00, [210,   0,   0]]    // 1.10 pu — red
+  ];
+  const LOADING_COLOR_STOPS = [
+    [0.0000, [ 30,  80, 200]], //   0 % — blue
+    [0.2000, [  0, 170, 220]], //  30 % — cyan
+    [0.3333, [  0, 180,  60]], //  50 % — green
+    [0.4667, [180, 210,   0]], //  70 % — yellow-green
+    [0.5667, [255, 220,   0]], //  85 % — yellow
+    [0.6333, [255, 165,   0]], //  95 % — orange
+    [0.7000, [240,  90,   0]], // 105 % — red-orange
+    [0.8000, [210,   0,   0]], // 120 % — red
+    [1.0000, [120,   0,   0]]  // 150 % — dark red
+  ];
+
+  const interpolateColorStops = (t, stops) => {
+    const tc = Math.max(0, Math.min(1, Number.isFinite(t) ? t : 0));
+    if (tc <= stops[0][0]) {
+      const [, c] = stops[0];
+      return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+    }
+    if (tc >= stops[stops.length - 1][0]) {
+      const [, c] = stops[stops.length - 1];
+      return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+    }
+    for (let i = 0; i < stops.length - 1; i++) {
+      const [t0, c0] = stops[i];
+      const [t1, c1] = stops[i + 1];
+      if (tc >= t0 && tc <= t1) {
+        const f = (tc - t0) / (t1 - t0);
+        const r = Math.round(c0[0] + (c1[0] - c0[0]) * f);
+        const g = Math.round(c0[1] + (c1[1] - c0[1]) * f);
+        const b = Math.round(c0[2] + (c1[2] - c0[2]) * f);
+        return `rgb(${r}, ${g}, ${b})`;
+      }
+    }
+    const [, c] = stops[stops.length - 1];
+    return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+  };
+
+  const colorStopsForMetric = (metric) =>
+    metric === "busVoltage" ? VOLTAGE_COLOR_STOPS : LOADING_COLOR_STOPS;
+
   const colorForMetricValue = (value, min, max, metric) => {
     let t = 0;
     if (Number.isFinite(value) && Number.isFinite(min) && Number.isFinite(max) && max !== min) {
       t = (value - min) / (max - min);
       t = Math.max(0, Math.min(1, t));
     }
-
-    if (metric === "busVoltage") {
-      if (Number.isFinite(value) && value > 1.1) {
-        return "#14532d";
-      }
-
-      // Continuous 3-stop ramp: red (min) -> yellow (mid) -> green (max)
-      const low = [239, 68, 68];
-      const mid = [250, 204, 21];
-      const high = [22, 163, 74];
-
-      let r;
-      let g;
-      let b;
-      if (t <= 0.5) {
-        const tt = t / 0.5;
-        r = Math.round(low[0] + (mid[0] - low[0]) * tt);
-        g = Math.round(low[1] + (mid[1] - low[1]) * tt);
-        b = Math.round(low[2] + (mid[2] - low[2]) * tt);
-      } else {
-        const tt = (t - 0.5) / 0.5;
-        r = Math.round(mid[0] + (high[0] - mid[0]) * tt);
-        g = Math.round(mid[1] + (high[1] - mid[1]) * tt);
-        b = Math.round(mid[2] + (high[2] - mid[2]) * tt);
-      }
-      return `rgb(${r}, ${g}, ${b})`;
-    }
-
-    if (metric === "loading" || metric === "lineFlow") {
-      // 4-stop ramp: blue (0) → green (1/3) → yellow (2/3) → red (1)
-      const stops = [
-        [59, 130, 246],   // blue   #3b82f6
-        [34, 197, 94],    // green  #22c255
-        [250, 204, 21],   // yellow #facc15
-        [239, 68, 68]     // red    #ef4444
-      ];
-      const seg = t * (stops.length - 1);
-      const idx = Math.min(Math.floor(seg), stops.length - 2);
-      const tt = seg - idx;
-      const s0 = stops[idx];
-      const s1 = stops[idx + 1];
-      const r = Math.round(s0[0] + (s1[0] - s0[0]) * tt);
-      const g = Math.round(s0[1] + (s1[1] - s0[1]) * tt);
-      const b = Math.round(s0[2] + (s1[2] - s0[2]) * tt);
-      return `rgb(${r}, ${g}, ${b})`;
-    }
-
-    // Pale green → orange ramp for genActive / genReactive
-    const stops = [
-      [217, 240, 163],  // pale green   #d9f0a3
-      [173, 221, 142],  // light green  #addd8e
-      [254, 227, 145],  // pale yellow  #fee391
-      [254, 153, 41],   // orange       #fe9929
-      [217, 95, 14]     // dark orange  #d95f0e
-    ];
-    const seg = t * (stops.length - 1);
-    const idx = Math.min(Math.floor(seg), stops.length - 2);
-    const tt = seg - idx;
-    const s0 = stops[idx];
-    const s1 = stops[idx + 1];
-    const r = Math.round(s0[0] + (s1[0] - s0[0]) * tt);
-    const g = Math.round(s0[1] + (s1[1] - s0[1]) * tt);
-    const b = Math.round(s0[2] + (s1[2] - s0[2]) * tt);
-    return `rgb(${r}, ${g}, ${b})`;
+    return interpolateColorStops(t, colorStopsForMetric(metric));
   };
 
   const normalizeBusValue = (value) => {
@@ -1915,7 +1929,7 @@
 
   const metricLabel = (metric) => {
     if (metric === "lineFlow") {
-      return "Active Flow ij (MW)";
+      return "Active Flow ij (% of Rating)";
     }
     if (metric === "busVoltage") {
       return "Voltage (p.u.)";
@@ -1929,19 +1943,12 @@
     return "Loading (%)";
   };
 
-  const metricGradient = (metric, max) => {
-    if (metric === "busVoltage") {
-      return max > 1.1
-        ? "linear-gradient(to top, #ef4444 0%, #facc15 55%, #16a34a 80%, #14532d 100%)"
-        : "linear-gradient(to top, #ef4444 0%, #facc15 50%, #16a34a 100%)";
-    }
-    if (metric === "loading" || metric === "lineFlow") {
-      return "linear-gradient(to top, #3b82f6 0%, #22c55e 33%, #facc15 67%, #ef4444 100%)";
-    }
-    if (metric === "genActive" || metric === "genReactive") {
-      return "linear-gradient(to top, #d9f0a3 0%, #addd8e 25%, #fee391 50%, #fe9929 75%, #d95f0e 100%)";
-    }
-    return "linear-gradient(to top, #d9f0a3 0%, #addd8e 25%, #fee391 50%, #fe9929 75%, #d95f0e 100%)";
+  const metricGradient = (metric /* , max */) => {
+    const stops = colorStopsForMetric(metric);
+    const cssStops = stops
+      .map(([t, c]) => `rgb(${c[0]}, ${c[1]}, ${c[2]}) ${(t * 100).toFixed(2)}%`)
+      .join(", ");
+    return `linear-gradient(to right, ${cssStops})`;
   };
 
   const legendSectionHtml = (metric) => {
@@ -1951,25 +1958,26 @@
       <div class="line-color-legend-section">
         <div class="line-color-legend-title">${esc(metricLabel(metric))}</div>
         <div class="line-color-legend-scale-wrap">
-          <div class="line-color-legend-max">${esc(formatLegendLimit(max, metric))}</div>
-          <div class="line-color-legend-gradient" style="background:${gradient};"></div>
           <div class="line-color-legend-min">${esc(formatLegendLimit(min, metric))}</div>
+          <div class="line-color-legend-gradient" style="background:${gradient};"></div>
+          <div class="line-color-legend-max">${esc(formatLegendLimit(max, metric))}</div>
         </div>
       </div>
     `;
   };
 
   const legendSectionHtmlForRows = (metric, rows) => {
-    // Loading uses a fixed 0–150 scale regardless of actual data values
-    if (metric === "loading") {
+    // Loading and lineFlow use a fixed 0–150 % scale (lineFlow is colored by
+    // |Pij|/RateA stress ratio, not raw MW magnitude).
+    if (metric === "loading" || metric === "lineFlow") {
       const gradient = metricGradient(metric, 150);
       return `
       <div class="line-color-legend-section">
         <div class="line-color-legend-title">${esc(metricLabel(metric))}</div>
         <div class="line-color-legend-scale-wrap">
-          <div class="line-color-legend-max">150</div>
-          <div class="line-color-legend-gradient" style="background:${gradient};"></div>
           <div class="line-color-legend-min">0</div>
+          <div class="line-color-legend-gradient" style="background:${gradient};"></div>
+          <div class="line-color-legend-max">150</div>
         </div>
       </div>
     `;
@@ -1984,9 +1992,9 @@
       <div class="line-color-legend-section">
         <div class="line-color-legend-title">${esc(metricLabel(metric))}</div>
         <div class="line-color-legend-scale-wrap">
-          <div class="line-color-legend-max">${esc(formatLegendLimit(max, metric))}</div>
-          <div class="line-color-legend-gradient" style="background:${gradient};"></div>
           <div class="line-color-legend-min">${esc(formatLegendLimit(min, metric))}</div>
+          <div class="line-color-legend-gradient" style="background:${gradient};"></div>
+          <div class="line-color-legend-max">${esc(formatLegendLimit(max, metric))}</div>
         </div>
       </div>
     `;
