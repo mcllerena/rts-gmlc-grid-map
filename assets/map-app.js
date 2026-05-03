@@ -27,6 +27,7 @@
   let activeTileErrorCount = 0;
   let linesLayer = null;
   let busesLayer = null;
+  let gensLayer = null;
   let genConnLayer = null;
   let areasLayer = null;
   let contingencyControlContainer = null;
@@ -38,6 +39,7 @@
   let currentViewMode = "default";
   let loadingMetricButton = null;
   let lineFlowMetricButton = null;
+  let tempCondMetricButton = null;
   let busVoltageMetricButton = null;
   let genActiveMetricButton = null;
   let genReactiveMetricButton = null;
@@ -61,6 +63,7 @@
   let activeBaseCaseGeneratorMetric = null;
   let bcLoadingMetricButton = null;
   let bcLineFlowMetricButton = null;
+  let bcTempCondMetricButton = null;
   let bcBusVoltageMetricButton = null;
   let bcGenActiveMetricButton = null;
   let bcGenReactiveMetricButton = null;
@@ -75,13 +78,16 @@
   let baseCasePlotPanelRef = null;
   let contingencyDataPanelRef = null;
   let contingencyPlotPanelRef = null;
-  let flowAnimationControlContainer = null;
-  let flowAnimationButton = null;
+  let flowAnimationButtons = [];
   let flowAnimationLayer = null;
   let flowAnimationActors = [];
   let flowAnimationFrameId = 0;
   let flowAnimationLastFrameTs = 0;
   let isFlowAnimationActive = false;
+  let violationGlowLayer = null;
+  let violationGlowButton = null;
+  let isViolationGlowActive = false;
+  let violationGlowSummaryRender = null;
   let plotlyLoaderPromise = null;
   const flowAngleEpsilonDeg = 1e-5;
   const popupLayers = [];
@@ -393,7 +399,7 @@
 
   const lineStyleForFeature = (feature) => {
     const uid = String((feature && feature.properties && feature.properties.UID) || "");
-    if (currentViewMode === "contingency" && activeContingencyConverged && (activeLineMetric === "loading" || activeLineMetric === "lineFlow")) {
+    if (currentViewMode === "contingency" && activeContingencyConverged && (activeLineMetric === "loading" || activeLineMetric === "lineFlow" || activeLineMetric === "tempCond")) {
       const value = getMetricValueForUid(uid, activeLineMetric);
       if (Number.isFinite(value)) {
         let color;
@@ -413,7 +419,7 @@
       }
     }
 
-    if (currentViewMode === "baseCase" && (activeBaseCaseLineMetric === "loading" || activeBaseCaseLineMetric === "lineFlow")) {
+    if (currentViewMode === "baseCase" && (activeBaseCaseLineMetric === "loading" || activeBaseCaseLineMetric === "lineFlow" || activeBaseCaseLineMetric === "tempCond")) {
       const row = baseCaseFlowRowsByUid[uid];
       const value = getMetricValueForRow(row, activeBaseCaseLineMetric);
       if (Number.isFinite(value)) {
@@ -427,6 +433,9 @@
           if (activeBaseCaseLineMetric === "loading") {
             min = 0;
             max = 150;
+          } else if (activeBaseCaseLineMetric === "tempCond") {
+            min = 25;
+            max = 125;
           } else {
             const sourceRows = Object.values(baseCaseFlowRowsByUid);
             const values = sourceRows.map((r) => getMetricValueForRow(r, activeBaseCaseLineMetric)).filter((v) => Number.isFinite(v));
@@ -462,6 +471,151 @@
       }
       layer.setStyle(lineStyleForFeature(layer.feature));
     });
+    refreshViolationGlow();
+    if (violationGlowSummaryRender) {
+      violationGlowSummaryRender();
+    }
+  };
+
+  const isViolationTrue = (value) =>
+    String(value || "").trim().toLowerCase() === "true";
+
+  // Counts violations across line, bus, and generator results for the
+  // currently active contingency.
+  const countActiveViolations = () => {
+    let lines = 0;
+    let buses = 0;
+    let gens = 0;
+    Object.values(activeFlowRowsByUid).forEach((r) => {
+      if (r && isViolationTrue(r.Violation)) lines += 1;
+    });
+    Object.values(activeBusRowsByBusId).forEach((r) => {
+      if (r && isViolationTrue(r.Violation)) buses += 1;
+    });
+    Object.values(activeGenRowsByBusAndMachine).forEach((r) => {
+      if (r && isViolationTrue(r.Violation)) gens += 1;
+    });
+    return { lines, buses, gens, total: lines + buses + gens };
+  };
+
+  // Draws a yellow halo beneath each branch / bus / generator whose
+  // contingency row has Violation === True. The button only applies in
+  // contingency mode.
+  const refreshViolationGlow = () => {
+    if (violationGlowLayer) {
+      violationGlowLayer.clearLayers();
+    }
+
+    const shouldShow = isViolationGlowActive
+      && currentViewMode === "contingency"
+      && selectedContingencyUid
+      && activeContingencyConverged
+      && linesLayer;
+
+    if (!shouldShow) {
+      if (violationGlowLayer && map.hasLayer(violationGlowLayer)) {
+        map.removeLayer(violationGlowLayer);
+      }
+      return;
+    }
+
+    if (!violationGlowLayer) {
+      violationGlowLayer = L.layerGroup();
+    }
+
+    // Branches
+    linesLayer.eachLayer((layer) => {
+      if (!layer || !layer.feature || !layer.getLatLngs) {
+        return;
+      }
+      const uid = String(((layer.feature.properties) || {}).UID || "");
+      const row = activeFlowRowsByUid[uid];
+      if (!row || !isViolationTrue(row.Violation)) {
+        return;
+      }
+      const latlngs = layer.getLatLngs();
+      if (!latlngs || (Array.isArray(latlngs) && latlngs.length === 0)) {
+        return;
+      }
+      const halo = L.polyline(latlngs, {
+        color: "#facc15",
+        weight: 12,
+        opacity: 0.55,
+        lineCap: "round",
+        lineJoin: "round",
+        interactive: false,
+        className: "violation-glow"
+      });
+      violationGlowLayer.addLayer(halo);
+    });
+
+    // Buses
+    if (busesLayer) {
+      busesLayer.eachLayer((layer) => {
+        if (!layer || !layer.feature || !layer.getLatLng) {
+          return;
+        }
+        const busId = normalizeBusValue(((layer.feature.properties) || {})["Bus ID"]);
+        if (!busId) {
+          return;
+        }
+        const row = activeBusRowsByBusId[busId];
+        if (!row || !isViolationTrue(row.Violation)) {
+          return;
+        }
+        const halo = L.circleMarker(layer.getLatLng(), {
+          radius: 12,
+          color: "#facc15",
+          weight: 0,
+          fillColor: "#facc15",
+          fillOpacity: 0.55,
+          interactive: false,
+          className: "violation-glow"
+        });
+        violationGlowLayer.addLayer(halo);
+      });
+    }
+
+    // Generators
+    if (gensLayer) {
+      gensLayer.eachLayer((layer) => {
+        if (!layer || !layer.feature || !layer.getLatLng) {
+          return;
+        }
+        const props = (layer.feature && layer.feature.properties) || {};
+        const busId = normalizeBusValue(props["Bus ID"]);
+        const machineId = normalizeMachineValue(props["Gen ID"] ?? props.MachineID);
+        if (!busId || !machineId) {
+          return;
+        }
+        const row = activeGenRowsByBusAndMachine[genBusMachineKey(busId, machineId)];
+        if (!row || !isViolationTrue(row.Violation)) {
+          return;
+        }
+        const halo = L.circleMarker(layer.getLatLng(), {
+          radius: 11,
+          color: "#facc15",
+          weight: 0,
+          fillColor: "#facc15",
+          fillOpacity: 0.55,
+          interactive: false,
+          className: "violation-glow"
+        });
+        violationGlowLayer.addLayer(halo);
+      });
+    }
+
+    if (!map.hasLayer(violationGlowLayer)) {
+      violationGlowLayer.addTo(map);
+    }
+    // Keep the glow under the regular markers/lines so click/hover still works.
+    if (violationGlowLayer.eachLayer) {
+      violationGlowLayer.eachLayer((l) => {
+        if (l && l.bringToBack) {
+          l.bringToBack();
+        }
+      });
+    }
   };
 
   const getActiveLineRowByUidForFlow = (uid) => {
@@ -751,9 +905,7 @@
     stopFlowAnimationLoop();
     clearFlowAnimationActors();
 
-    if (flowAnimationButton) {
-      flowAnimationButton.classList.remove("active");
-    }
+    flowAnimationButtons.forEach((btn) => btn.classList.remove("active"));
 
     if (flowAnimationLayer && map.hasLayer(flowAnimationLayer)) {
       map.removeLayer(flowAnimationLayer);
@@ -774,9 +926,7 @@
 
     rebuildFlowAnimationActors();
 
-    if (flowAnimationButton) {
-      flowAnimationButton.classList.add("active");
-    }
+    flowAnimationButtons.forEach((btn) => btn.classList.add("active"));
 
     if (!flowAnimationFrameId) {
       flowAnimationFrameId = window.requestAnimationFrame(animateFlowFrame);
@@ -785,9 +935,6 @@
 
   const refreshFlowAnimationControlState = () => {
     const showControl = currentViewMode === "baseCase" || currentViewMode === "contingency";
-    if (flowAnimationControlContainer) {
-      flowAnimationControlContainer.style.display = showControl ? "block" : "none";
-    }
 
     if (!showControl) {
       if (isFlowAnimationActive) {
@@ -797,10 +944,10 @@
     }
 
     const enabled = hasFlowAnimationData();
-    if (flowAnimationButton) {
-      flowAnimationButton.disabled = !enabled;
-      flowAnimationButton.classList.toggle("active", isFlowAnimationActive);
-    }
+    flowAnimationButtons.forEach((btn) => {
+      btn.disabled = !enabled;
+      btn.classList.toggle("active", isFlowAnimationActive);
+    });
 
     if (!enabled && isFlowAnimationActive) {
       stopFlowAnimation();
@@ -810,6 +957,26 @@
     if (enabled && isFlowAnimationActive) {
       startFlowAnimation();
     }
+  };
+
+  const appendFlowAnimationButton = (parent) => {
+    const btn = L.DomUtil.create("button", "flow-animation-btn", parent);
+    btn.type = "button";
+    btn.textContent = "Animated Flow";
+    btn.title = "Animate line flow from higher to lower bus angle";
+    btn.addEventListener("click", () => {
+      if (btn.disabled) {
+        return;
+      }
+      if (isFlowAnimationActive) {
+        stopFlowAnimation();
+      } else {
+        startFlowAnimation();
+      }
+      refreshFlowAnimationControlState();
+    });
+    flowAnimationButtons.push(btn);
+    return btn;
   };
 
   const busIconHtml = (color) => `<div style="width:12px;height:12px;background:${color};border:1px solid ${color};box-sizing:border-box;position:relative;overflow:hidden;"><span style="position:absolute;left:-2px;top:5px;width:16px;height:1.4px;background:#111;transform:rotate(45deg);transform-origin:center;"></span></div>`;
@@ -871,6 +1038,10 @@
       return Math.abs(Number(row["Pij(MW)"]));
     }
 
+    if (metric === "tempCond") {
+      return Number(row[TEMP_COND_COLUMN]);
+    }
+
     if (metric === "busVoltage") {
       return Number(row["Volt(pu)"]);
     }
@@ -894,6 +1065,11 @@
     // Loading and lineFlow always use a fixed 0–150 % scale
     if (metric === "loading" || metric === "lineFlow") {
       return { min: 0, max: 150 };
+    }
+    // Conductor temperature uses a fixed 25–125 °C scale anchored on the
+    // 75 °C ACSR design max (mid-band) and 105–125 °C overload region (red).
+    if (metric === "tempCond") {
+      return { min: 25, max: 125 };
     }
 
     let sourceRows = Object.values(activeFlowRowsByUid);
@@ -1258,6 +1434,20 @@
       row.__ckt = normalizeCktValue(cols[cktIndex]);
       return row;
     });
+
+    // Merge conductor temperature (real weather) when available
+    try {
+      const tempMap = await loadN1TempMap(season);
+      if (tempMap && tempMap.size) {
+        rows.forEach((r) => {
+          const key = `${r.__contingency}|${r.__fromBus}|${r.__toBus}|${r.__ckt}`;
+          const v = tempMap.get(key);
+          if (v != null) {
+            r[TEMP_COND_COLUMN] = String(v);
+          }
+        });
+      }
+    } catch (_e) { /* leave rows untouched */ }
 
     caRowsCacheBySeason.set(season, rows);
     return rows;
@@ -1657,8 +1847,109 @@
       };
     });
 
+    // Merge conductor temperature (real weather) when available
+    try {
+      const tempMap = await loadBaseCaseTempMap(season);
+      if (tempMap && tempMap.size) {
+        rows.forEach((r) => {
+          const key = `${r.__fromBus}|${r.__toBus}|${r.__ckt}`;
+          const v = tempMap.get(key);
+          if (v != null) {
+            r[TEMP_COND_COLUMN] = String(v);
+          }
+        });
+      }
+    } catch (_e) { /* leave rows untouched */ }
+
     baseCaseLineRowsCacheBySeason.set(season, rows);
     return rows;
+  };
+
+  // ── Conductor temperature (real weather) ────────────────────────────────
+  // Loaders for the *_with_realweather_T.csv companion files. The temperature
+  // column is merged into the existing line rows on demand.
+  const TEMP_COND_COLUMN = "Tcond_realweather(degC)";
+  const baseCaseTempBySeason = new Map();   // season -> Map<from|to|ckt, °C>
+  const n1TempBySeason = new Map();         // season -> Map<contingency|from|to|ckt, °C>
+
+  const getBaseCaseTempCsvPath = (season) =>
+    season === "summer"
+      ? "./ca_results/summer/base_lines_with_realweather_T.csv"
+      : "./ca_results/winter/base_lines_with_realweather_T.csv";
+
+  const getN1TempCsvPath = (season) =>
+    season === "summer"
+      ? "./ca_results/summer/N1_lines_with_realweather_T.csv"
+      : "./ca_results/winter/N1_lines_with_realweather_T.csv";
+
+  const fetchTextOrEmpty = async (path) => {
+    try {
+      const response = await fetch(path, { cache: "no-cache" });
+      return response.ok ? await response.text() : "";
+    } catch (_error) {
+      return "";
+    }
+  };
+
+  const loadBaseCaseTempMap = async (season) => {
+    if (baseCaseTempBySeason.has(season)) {
+      return baseCaseTempBySeason.get(season);
+    }
+    const out = new Map();
+    const text = await fetchTextOrEmpty(getBaseCaseTempCsvPath(season));
+    if (text) {
+      const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+      if (lines.length > 1) {
+        const header = parseCsvLine(lines[0]);
+        const fIdx = header.indexOf("FromBus#");
+        const tIdx = header.indexOf("ToBus#");
+        const cIdx = header.indexOf("CKT");
+        const kIdx = header.indexOf(TEMP_COND_COLUMN);
+        if (fIdx >= 0 && tIdx >= 0 && cIdx >= 0 && kIdx >= 0) {
+          for (let i = 1; i < lines.length; i += 1) {
+            const cols = parseCsvLine(lines[i]);
+            const key = `${normalizeBusValue(cols[fIdx])}|${normalizeBusValue(cols[tIdx])}|${normalizeCktValue(cols[cIdx])}`;
+            const value = Number(cols[kIdx]);
+            if (Number.isFinite(value)) {
+              out.set(key, value);
+            }
+          }
+        }
+      }
+    }
+    baseCaseTempBySeason.set(season, out);
+    return out;
+  };
+
+  const loadN1TempMap = async (season) => {
+    if (n1TempBySeason.has(season)) {
+      return n1TempBySeason.get(season);
+    }
+    const out = new Map();
+    const text = await fetchTextOrEmpty(getN1TempCsvPath(season));
+    if (text) {
+      const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+      if (lines.length > 1) {
+        const header = parseCsvLine(lines[0]);
+        const contIdx = header.indexOf("Contingency");
+        const fIdx = header.indexOf("FromBus#");
+        const tIdx = header.indexOf("ToBus#");
+        const cIdx = header.indexOf("CKT");
+        const kIdx = header.indexOf(TEMP_COND_COLUMN);
+        if (contIdx >= 0 && fIdx >= 0 && tIdx >= 0 && cIdx >= 0 && kIdx >= 0) {
+          for (let i = 1; i < lines.length; i += 1) {
+            const cols = parseCsvLine(lines[i]);
+            const key = `${String(cols[contIdx] || "").trim()}|${normalizeBusValue(cols[fIdx])}|${normalizeBusValue(cols[tIdx])}|${normalizeCktValue(cols[cIdx])}`;
+            const value = Number(cols[kIdx]);
+            if (Number.isFinite(value)) {
+              out.set(key, value);
+            }
+          }
+        }
+      }
+    }
+    n1TempBySeason.set(season, out);
+    return out;
   };
 
   const getBaseCaseBusCsvPath = (season) => {
@@ -1931,6 +2222,9 @@
     if (metric === "lineFlow") {
       return "Active Flow ij (% of Rating)";
     }
+    if (metric === "tempCond") {
+      return "Conductor Temperature (°C)";
+    }
     if (metric === "busVoltage") {
       return "Voltage (p.u.)";
     }
@@ -1978,6 +2272,19 @@
           <div class="line-color-legend-min">0</div>
           <div class="line-color-legend-gradient" style="background:${gradient};"></div>
           <div class="line-color-legend-max">150</div>
+        </div>
+      </div>
+    `;
+    }
+    if (metric === "tempCond") {
+      const gradient = metricGradient(metric, 125);
+      return `
+      <div class="line-color-legend-section">
+        <div class="line-color-legend-title">${esc(metricLabel(metric))}</div>
+        <div class="line-color-legend-scale-wrap">
+          <div class="line-color-legend-min">25</div>
+          <div class="line-color-legend-gradient" style="background:${gradient};"></div>
+          <div class="line-color-legend-max">125</div>
         </div>
       </div>
     `;
@@ -2063,6 +2370,11 @@
       lineFlowMetricButton.classList.toggle("active", activeLineMetric === "lineFlow");
     }
 
+    if (tempCondMetricButton) {
+      tempCondMetricButton.disabled = !enabled;
+      tempCondMetricButton.classList.toggle("active", activeLineMetric === "tempCond");
+    }
+
     if (busVoltageMetricButton) {
       busVoltageMetricButton.disabled = !enabled;
       busVoltageMetricButton.classList.toggle("active", isBusVoltageMetricActive);
@@ -2076,6 +2388,17 @@
     if (genReactiveMetricButton) {
       genReactiveMetricButton.disabled = !enabled;
       genReactiveMetricButton.classList.toggle("active", activeGeneratorMetric === "genReactive");
+    }
+
+    if (violationGlowButton) {
+      violationGlowButton.disabled = !enabled;
+      if (!enabled && isViolationGlowActive) {
+        isViolationGlowActive = false;
+      }
+      violationGlowButton.classList.toggle("active", isViolationGlowActive);
+      if (violationGlowSummaryRender) {
+        violationGlowSummaryRender();
+      }
     }
 
     const caBtn = createContingencyControl._showDataBtn;
@@ -2094,6 +2417,9 @@
     }
     if (bcLineFlowMetricButton) {
       bcLineFlowMetricButton.classList.toggle("active", activeBaseCaseLineMetric === "lineFlow");
+    }
+    if (bcTempCondMetricButton) {
+      bcTempCondMetricButton.classList.toggle("active", activeBaseCaseLineMetric === "tempCond");
     }
     if (bcBusVoltageMetricButton) {
       bcBusVoltageMetricButton.classList.toggle("active", isBaseCaseBusVoltageMetricActive);
@@ -2130,7 +2456,50 @@
       `<b>Violation:</b> ${esc(violation)}`
     ];
 
+    if (row[TEMP_COND_COLUMN] != null && String(row[TEMP_COND_COLUMN]).length > 0) {
+      detailRows.splice(detailRows.length - 1, 0,
+        `<b>Conductor Temp:</b> ${esc(formatMetric(row[TEMP_COND_COLUMN], "°C"))}`);
+    }
+
     return `<b>${title}</b><br>${detailRows.join("<br>")}`;
+  };
+
+  // Tracks contingency names whose power-flow case did NOT converge for a
+  // given season. These are the ones that get a warning marker in the
+  // contingency dropdown.
+  const nonConvergedContingencyNamesBySeason = new Map();
+
+  const loadNonConvergedContingencyNames = async (season) => {
+    if (!season) {
+      return new Set();
+    }
+    if (nonConvergedContingencyNamesBySeason.has(season)) {
+      return nonConvergedContingencyNamesBySeason.get(season);
+    }
+    const set = new Set();
+    const collect = (rows) => {
+      rows.forEach((r) => {
+        const converged = String(r.Converged != null ? r.Converged : r.__converged || "").trim().toLowerCase();
+        if (converged === "false") {
+          const name = String(r.__contingency || "").trim();
+          if (name) {
+            set.add(name);
+          }
+        }
+      });
+    };
+    try {
+      const [lineRows, busRows, genRows] = await Promise.all([
+        readSeasonLineFlowsCsv(season).catch(() => []),
+        readSeasonBusCsv(season).catch(() => []),
+        readSeasonGenCsv(season).catch(() => [])
+      ]);
+      collect(lineRows);
+      collect(busRows);
+      collect(genRows);
+    } catch (_e) { /* keep empty set */ }
+    nonConvergedContingencyNamesBySeason.set(season, set);
+    return set;
   };
 
   const createContingencyControl = (branchGeo, lineNameByUid, onSelectionChange, onMetricChange, onPlotData) => {
@@ -2154,15 +2523,144 @@
         const dropdownWrap = L.DomUtil.create("div", "contingency-dropdown-wrap", panel);
         dropdownWrap.style.display = "none";
 
-        const select = L.DomUtil.create("select", "contingency-select", dropdownWrap);
-        const noneOption = L.DomUtil.create("option", "", select);
-        noneOption.value = "";
-        noneOption.textContent = "Select line";
+        // Custom searchable combobox for the contingency line picker. The
+        // search input only appears when the dropdown is opened. We expose a
+        // tiny `select`-like API (`.value`, `.options`, `addEventListener`,
+        // `.disabled`) so the rest of the control logic stays unchanged.
+        const lineCombo = L.DomUtil.create("div", "contingency-combo", dropdownWrap);
+        const lineComboTrigger = L.DomUtil.create("button", "contingency-select contingency-combo-trigger", lineCombo);
+        lineComboTrigger.type = "button";
+        const lineComboTriggerLabel = L.DomUtil.create("span", "contingency-combo-trigger-label", lineComboTrigger);
+        lineComboTriggerLabel.textContent = "Select line";
+        const lineComboCaret = L.DomUtil.create("span", "contingency-combo-caret", lineComboTrigger);
+        lineComboCaret.textContent = "▾";
 
-        lineOptions.forEach((uid) => {
-          const option = L.DomUtil.create("option", "", select);
-          option.value = uid;
-          option.textContent = uid;
+        const lineComboPanel = L.DomUtil.create("div", "contingency-combo-panel", lineCombo);
+        lineComboPanel.style.display = "none";
+        L.DomEvent.disableClickPropagation(lineComboPanel);
+        L.DomEvent.disableScrollPropagation(lineComboPanel);
+
+        const lineComboSearch = L.DomUtil.create("input", "contingency-search", lineComboPanel);
+        lineComboSearch.type = "search";
+        lineComboSearch.placeholder = "Search by line, bus #, or circuit…";
+        lineComboSearch.autocomplete = "off";
+        L.DomEvent.disableClickPropagation(lineComboSearch);
+
+        const lineComboList = L.DomUtil.create("div", "contingency-combo-list", lineComboPanel);
+        const lineComboEmpty = L.DomUtil.create("div", "contingency-search-empty", lineComboPanel);
+        lineComboEmpty.textContent = "No lines match the search.";
+        lineComboEmpty.style.display = "none";
+
+        // Synthetic option model — exposes the same shape as <option>.
+        const comboOptions = [];
+        const makeOption = (uid, textContent) => {
+          const node = L.DomUtil.create("button", "contingency-combo-option", lineComboList);
+          node.type = "button";
+          node.textContent = textContent;
+          const option = {
+            value: uid,
+            _node: node,
+            _hidden: false,
+            get textContent() { return node.textContent; },
+            set textContent(v) { node.textContent = v; },
+            get hidden() { return option._hidden; },
+            set hidden(v) {
+              option._hidden = !!v;
+              node.style.display = v ? "none" : "";
+            },
+            classList: node.classList
+          };
+          node.addEventListener("click", () => {
+            comboSetValue(uid, true);
+            closeLineCombo();
+          });
+          comboOptions.push(option);
+          return option;
+        };
+
+        // Placeholder option (kept for parity with the old <select>; not rendered).
+        const noneOption = {
+          value: "",
+          _hidden: false,
+          textContent: "Select line",
+          get hidden() { return this._hidden; },
+          set hidden(v) { this._hidden = !!v; },
+          classList: { toggle() {} }
+        };
+        comboOptions.push(noneOption);
+
+        lineOptions.forEach((uid) => makeOption(uid, uid));
+
+        let comboValue = "";
+        const comboListeners = [];
+        const comboSetValue = (val, fireChange) => {
+          comboValue = val || "";
+          const opt = comboOptions.find((o) => o.value === comboValue);
+          lineComboTriggerLabel.textContent = opt && opt.value
+            ? opt.textContent
+            : "Select line";
+          if (fireChange) {
+            comboListeners.forEach((fn) => fn());
+          }
+        };
+
+        const select = {
+          get value() { return comboValue; },
+          set value(v) { comboSetValue(v, false); },
+          get options() { return comboOptions; },
+          get disabled() { return lineComboTrigger.disabled; },
+          set disabled(v) { lineComboTrigger.disabled = !!v; },
+          addEventListener(evt, fn) {
+            if (evt === "change") {
+              comboListeners.push(fn);
+            }
+          }
+        };
+
+        const applyComboSearchFilter = () => {
+          const query = String(lineComboSearch.value || "").trim().toLowerCase();
+          let visibleCount = 0;
+          comboOptions.forEach((option) => {
+            if (!option.value) {
+              return;
+            }
+            const baseLabel = lineNameByUid[option.value] || option.value;
+            const haystack = `${option.value} ${baseLabel}`.toLowerCase();
+            const match = !query || haystack.includes(query);
+            option.hidden = !match;
+            if (match) visibleCount += 1;
+          });
+          lineComboEmpty.style.display = (query && visibleCount === 0) ? "block" : "none";
+        };
+
+        const openLineCombo = () => {
+          lineComboPanel.style.display = "block";
+          lineComboTrigger.classList.add("open");
+          lineComboSearch.value = "";
+          applyComboSearchFilter();
+          // Defer focus until after the panel is laid out.
+          window.setTimeout(() => lineComboSearch.focus(), 0);
+        };
+
+        const closeLineCombo = () => {
+          lineComboPanel.style.display = "none";
+          lineComboTrigger.classList.remove("open");
+        };
+
+        lineComboTrigger.addEventListener("click", (e) => {
+          e.preventDefault();
+          if (lineComboPanel.style.display === "none") {
+            openLineCombo();
+          } else {
+            closeLineCombo();
+          }
+        });
+        lineComboSearch.addEventListener("input", applyComboSearchFilter);
+        // Click-outside closes the panel.
+        document.addEventListener("mousedown", (e) => {
+          if (!lineCombo.contains(e.target)) {
+            closeLineCombo();
+          }
         });
 
         const seasonSelect = L.DomUtil.create("select", "contingency-select contingency-season-select", dropdownWrap);
@@ -2187,6 +2685,11 @@
         lineFlowMetricButton.type = "button";
         lineFlowMetricButton.textContent = "Line Flow";
 
+        tempCondMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
+        tempCondMetricButton.type = "button";
+        tempCondMetricButton.textContent = "Conductor Temperature";
+        tempCondMetricButton.title = "Real-weather IEEE 738 conductor surface temperature";
+
         busVoltageMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
         busVoltageMetricButton.type = "button";
         busVoltageMetricButton.textContent = "Bus Voltages";
@@ -2199,6 +2702,81 @@
         genReactiveMetricButton.type = "button";
         genReactiveMetricButton.textContent = "Gen Reactive Power";
 
+        violationGlowButton = L.DomUtil.create("button", "contingency-metric-btn violation-glow-btn", metricButtonsWrap);
+        violationGlowButton.type = "button";
+        violationGlowButton.textContent = "Show Violations";
+        violationGlowButton.title = "Glow lines, buses, and generators with Violation = True under the selected contingency";
+        violationGlowButton.disabled = true;
+
+        // Floating summary panel anchored at the top of the map (under tabs).
+        // Created lazily on first activation so it always lives above the map.
+        let violationSummaryPanel = null;
+        let violationSummaryText = null;
+
+        const ensureViolationSummaryPanel = () => {
+          if (violationSummaryPanel) {
+            return;
+          }
+          const host = map.getContainer();
+          violationSummaryPanel = document.createElement("div");
+          violationSummaryPanel.className = "violation-summary-panel";
+          violationSummaryPanel.style.display = "none";
+          L.DomEvent.disableClickPropagation(violationSummaryPanel);
+          L.DomEvent.disableScrollPropagation(violationSummaryPanel);
+
+          violationSummaryText = document.createElement("div");
+          violationSummaryText.className = "violation-summary-panel-text";
+          violationSummaryPanel.appendChild(violationSummaryText);
+
+          const closeBtn = document.createElement("button");
+          closeBtn.type = "button";
+          closeBtn.className = "violation-summary-panel-close";
+          closeBtn.setAttribute("aria-label", "Close violations summary");
+          closeBtn.textContent = "×";
+          closeBtn.addEventListener("click", () => {
+            // Closing the window also turns the glow off so state stays in sync.
+            isViolationGlowActive = false;
+            if (violationGlowButton) {
+              violationGlowButton.classList.remove("active");
+            }
+            refreshViolationGlow();
+            renderViolationSummary();
+          });
+          violationSummaryPanel.appendChild(closeBtn);
+          host.appendChild(violationSummaryPanel);
+        };
+
+        const renderViolationSummary = () => {
+          if (!isViolationGlowActive) {
+            if (violationSummaryPanel) {
+              violationSummaryPanel.style.display = "none";
+            }
+            return;
+          }
+          ensureViolationSummaryPanel();
+          const { lines, buses, gens, total } = countActiveViolations();
+          if (total === 0) {
+            violationSummaryText.textContent = "No violations to show.";
+            violationSummaryPanel.classList.add("violation-summary-panel--empty");
+          } else {
+            const parts = [];
+            if (lines) parts.push(`${lines} line${lines === 1 ? "" : "s"}`);
+            if (buses) parts.push(`${buses} bus${buses === 1 ? "" : "es"}`);
+            if (gens) parts.push(`${gens} generator${gens === 1 ? "" : "s"}`);
+            violationSummaryText.textContent = `${total} violation${total === 1 ? "" : "s"} found: ${parts.join(", ")}.`;
+            violationSummaryPanel.classList.remove("violation-summary-panel--empty");
+          }
+          violationSummaryPanel.style.display = "flex";
+        };
+        violationGlowSummaryRender = renderViolationSummary;
+
+        violationGlowButton.addEventListener("click", () => {
+          isViolationGlowActive = !isViolationGlowActive;
+          violationGlowButton.classList.toggle("active", isViolationGlowActive);
+          refreshViolationGlow();
+          renderViolationSummary();
+        });
+
         const seasonLabel = (season) => {
           if (season === "summer") {
             return "Summer";
@@ -2210,13 +2788,43 @@
         };
 
         const refreshLineOptionLabels = () => {
+          // Build the union of contingency names whose case did NOT converge
+          // across any season we have already loaded. Marked options surface
+          // the lines whose outage breaks the power flow.
+          const nonConvergedUnion = new Set();
+          nonConvergedContingencyNamesBySeason.forEach((set) => {
+            set.forEach((name) => nonConvergedUnion.add(name));
+          });
           Array.from(select.options).forEach((option) => {
             if (!option.value) {
               return;
             }
             const season = contingencySeasonByUid[option.value] || "";
             const baseLabel = lineNameByUid[option.value] || option.value;
-            option.textContent = season ? `${baseLabel}` : baseLabel;
+            const contName = lineNameByUid[option.value] || option.value;
+            const isNonConverged = nonConvergedUnion.has(contName);
+            option.textContent = `${isNonConverged ? "⚠ " : ""}${baseLabel}${season ? "" : ""}`;
+            option.classList.toggle("contingency-option-violation", isNonConverged);
+          });
+          // Keep the combobox trigger label in sync with the relabeled option.
+          if (comboValue) {
+            const opt = comboOptions.find((o) => o.value === comboValue);
+            if (opt) {
+              lineComboTriggerLabel.textContent = opt.textContent;
+            }
+          }
+        };
+
+        const ensureViolationDataForSeason = (season) => {
+          if (!season) {
+            return;
+          }
+          if (nonConvergedContingencyNamesBySeason.has(season)) {
+            refreshLineOptionLabels();
+            return;
+          }
+          loadNonConvergedContingencyNames(season).then(() => {
+            refreshLineOptionLabels();
           });
         };
 
@@ -2231,6 +2839,11 @@
         };
 
         seasonSelect.disabled = true;
+
+        // Eagerly load both seasons' violation sets so the dropdown can
+        // highlight lines whose outage causes any violation.
+        ensureViolationDataForSeason("summer");
+        ensureViolationDataForSeason("winter");
 
         button.addEventListener("click", () => {
           const showing = dropdownWrap.style.display !== "none";
@@ -2280,6 +2893,11 @@
           onMetricChange();
         });
 
+        tempCondMetricButton.addEventListener("click", () => {
+          activeLineMetric = activeLineMetric === "tempCond" ? null : "tempCond";
+          onMetricChange();
+        });
+
         busVoltageMetricButton.addEventListener("click", () => {
           isBusVoltageMetricActive = !isBusVoltageMetricActive;
           onMetricChange();
@@ -2316,6 +2934,8 @@
             onPlotData();
           }
         });
+
+        appendFlowAnimationButton(actionsCard);
 
         // Expose so applyContingencySelection can toggle enabled state
         createContingencyControl._showDataBtn = caShowDataBtn;
@@ -2369,6 +2989,11 @@
         bcLineFlowMetricButton.type = "button";
         bcLineFlowMetricButton.textContent = "Line Flow";
 
+        bcTempCondMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
+        bcTempCondMetricButton.type = "button";
+        bcTempCondMetricButton.textContent = "Conductor Temperature";
+        bcTempCondMetricButton.title = "Real-weather IEEE 738 conductor surface temperature";
+
         bcBusVoltageMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
         bcBusVoltageMetricButton.type = "button";
         bcBusVoltageMetricButton.textContent = "Bus Voltages";
@@ -2399,6 +3024,11 @@
 
         bcLineFlowMetricButton.addEventListener("click", () => {
           activeBaseCaseLineMetric = activeBaseCaseLineMetric === "lineFlow" ? null : "lineFlow";
+          onMetricChange();
+        });
+
+        bcTempCondMetricButton.addEventListener("click", () => {
+          activeBaseCaseLineMetric = activeBaseCaseLineMetric === "tempCond" ? null : "tempCond";
           onMetricChange();
         });
 
@@ -2436,6 +3066,8 @@
             onPlotData();
           }
         });
+
+        appendFlowAnimationButton(actionsCard);
 
         refreshMetricButtonsState();
         L.DomEvent.disableClickPropagation(container);
@@ -4521,6 +5153,10 @@
         `<b>Loading:</b> ${esc(formatIntegerMetric(row["Loading_%"], "%"))}`
       ];
 
+      if (row[TEMP_COND_COLUMN] != null && String(row[TEMP_COND_COLUMN]).length > 0) {
+        detailRows.push(`<b>Conductor Temp:</b> ${esc(formatMetric(row[TEMP_COND_COLUMN], "°C"))}`);
+      }
+
       return `<b>Line Flow</b><br>${detailRows.join("<br>")}`;
     };
 
@@ -4682,6 +5318,7 @@
         refreshOpenGeneratorPopups();
         refreshFlowAnimationControlState();
         refreshLineHighlight();
+        refreshViolationGlow();
         refreshBusColors();
         refreshGeneratorColors();
         if (contingencyPlotPanelRef) {
@@ -4969,7 +5606,7 @@
       busTypeToLayers[busType].push(layer);
     });
 
-    const gensLayer = L.geoJSON(genGeo, {
+    gensLayer = L.geoJSON(genGeo, {
       pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
         radius: 5,
         color: categoryColor[categoryOf(feature)] || "#777777",
@@ -5097,40 +5734,6 @@
     };
 
     const layersControl = L.control.layers(null, overlays, { collapsed: false }).addTo(map);
-
-    const FlowAnimationControl = L.Control.extend({
-      options: { position: "topright" },
-      onAdd() {
-        const container = L.DomUtil.create("div", "flow-animation-control leaflet-bar");
-        flowAnimationControlContainer = container;
-
-        const btn = L.DomUtil.create("button", "flow-animation-btn", container);
-        flowAnimationButton = btn;
-        btn.type = "button";
-        btn.textContent = "Animated Flow";
-        btn.title = "Animate line flow from higher to lower bus angle";
-
-        btn.addEventListener("click", () => {
-          if (btn.disabled) {
-            return;
-          }
-
-          if (isFlowAnimationActive) {
-            stopFlowAnimation();
-          } else {
-            startFlowAnimation();
-          }
-
-          refreshFlowAnimationControlState();
-        });
-
-        L.DomEvent.disableClickPropagation(container);
-        L.DomEvent.disableScrollPropagation(container);
-        return container;
-      }
-    });
-
-    map.addControl(new FlowAnimationControl());
 
     map.on("zoomend", () => {
       if (isFlowAnimationActive) {
@@ -5388,6 +5991,236 @@
       }
     };
 
+    const INFO_PANEL_HTML = `
+      <header class="info-panel-header">
+        <h2>Conductor Temperature Methodology</h2>
+        <button type="button" class="info-panel-close" aria-label="Close" id="info-panel-close">×</button>
+      </header>
+      <div class="info-panel-body">
+        <h3>Nomenclature</h3>
+        <table class="info-panel-nomenclature">
+          <thead>
+            <tr><th>Symbol</th><th>Description</th><th>Units</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>$T_s$</td><td>Conductor surface temperature</td><td>K (or °C)</td></tr>
+            <tr><td>$T_a$</td><td>Ambient air temperature</td><td>K</td></tr>
+            <tr><td>$T_{\\text{film}}$</td><td>Boundary-layer (film) temperature, $\\tfrac{1}{2}(T_s+T_a)$</td><td>K</td></tr>
+            <tr><td>$I$</td><td>Conductor current magnitude (AC power-flow solution)</td><td>A</td></tr>
+            <tr><td>$R$</td><td>Conductor AC resistance per unit length</td><td>Ω&nbsp;m$^{-1}$</td></tr>
+            <tr><td>$D_0$</td><td>Outside conductor diameter</td><td>m</td></tr>
+            <tr><td>$\\alpha_s$</td><td>Solar absorptivity of conductor surface</td><td>—</td></tr>
+            <tr><td>$\\varepsilon$</td><td>Emissivity of conductor surface</td><td>—</td></tr>
+            <tr><td>$\\sigma$</td><td>Stefan–Boltzmann constant, $5.67\\times10^{-8}$</td><td>W&nbsp;m$^{-2}$&nbsp;K$^{-4}$</td></tr>
+            <tr><td>$G$</td><td>Global horizontal solar irradiance</td><td>W&nbsp;m$^{-2}$</td></tr>
+            <tr><td>$V_w$</td><td>Wind speed at conductor</td><td>m&nbsp;s$^{-1}$</td></tr>
+            <tr><td>$\\phi$</td><td>Angle between wind direction and conductor axis</td><td>°</td></tr>
+            <tr><td>$K_{\\text{angle}}$</td><td>Wind direction factor (IEEE&nbsp;738 eq.&nbsp;4a)</td><td>—</td></tr>
+            <tr><td>$\\rho_f$</td><td>Air density at $T_{\\text{film}}$</td><td>kg&nbsp;m$^{-3}$</td></tr>
+            <tr><td>$\\mu_f$</td><td>Dynamic viscosity of air at $T_{\\text{film}}$</td><td>kg&nbsp;m$^{-1}$&nbsp;s$^{-1}$</td></tr>
+            <tr><td>$k_f$</td><td>Thermal conductivity of air at $T_{\\text{film}}$</td><td>W&nbsp;m$^{-1}$&nbsp;K$^{-1}$</td></tr>
+            <tr><td>$N_{\\text{Re}}$</td><td>Reynolds number, $D_0\\rho_f|V_w|/\\mu_f$</td><td>—</td></tr>
+            <tr><td>$H_e$</td><td>Conductor elevation above sea level</td><td>m</td></tr>
+            <tr><td>$p$</td><td>Surface air pressure</td><td>Pa</td></tr>
+            <tr><td>$\\mathrm{RH}$</td><td>Relative humidity (fraction)</td><td>—</td></tr>
+            <tr><td>$p_{wv}$</td><td>Partial pressure of water vapor</td><td>Pa</td></tr>
+            <tr><td>$p_{wv,\\text{sat}}$</td><td>Saturation vapor pressure of water (Tetens)</td><td>Pa</td></tr>
+            <tr><td>$R_d,\\,R_v$</td><td>Specific gas constants for dry air and water vapor</td><td>J&nbsp;kg$^{-1}$&nbsp;K$^{-1}$</td></tr>
+            <tr><td>$q_s$</td><td>Solar heat gain per unit length</td><td>W&nbsp;m$^{-1}$</td></tr>
+            <tr><td>$q_r$</td><td>Radiative heat loss per unit length</td><td>W&nbsp;m$^{-1}$</td></tr>
+            <tr><td>$q_c$</td><td>Convective heat loss per unit length (max of three regimes)</td><td>W&nbsp;m$^{-1}$</td></tr>
+            <tr><td>$q_{c,\\text{nat}},\\,q_{c,1},\\,q_{c,2}$</td><td>Natural / low-wind / high-wind convective regimes</td><td>W&nbsp;m$^{-1}$</td></tr>
+            <tr><td>$q_J$</td><td>Joule heat gain per unit length, $I^{2}R$</td><td>W&nbsp;m$^{-1}$</td></tr>
+          </tbody>
+        </table>
+
+        <p>
+          For every transmission line in the system the conductor surface temperature
+          $T_s$ is obtained by solving the steady-state IEEE&nbsp;Std&nbsp;738-2023
+          per-unit-length heat balance:
+        </p>
+        $$ q_c(T_s) + q_r(T_s) \\;=\\; q_s + I^{2}\\,R(T_s) $$
+        <p>
+          where $q_c$ is convective cooling, $q_r$ is radiative cooling,
+          $q_s$ is solar heating, and $I^{2}R$ is Joule heating from the
+          AC power-flow current $I$. The equation is solved by bisection on
+          $T_s\\in[T_{\\text{amb}},\\,250\\,^{\\circ}\\mathrm{C}]$ to a tolerance
+          of $10^{-3}\\,\\mathrm{K}$.
+        </p>
+
+        <h3>Solar heating</h3>
+        <p>The solar contribution per unit length, given the global horizontal irradiance $G$ [W&nbsp;m$^{-2}$], conductor diameter $D_0$ [m] and solar absorptivity $\\alpha_s$:</p>
+        $$ q_s \\;=\\; \\alpha_s\\,G\\,D_0 $$
+
+        <h3>Radiative cooling</h3>
+        <p>Stefan–Boltzmann radiation exchange between the conductor surface and the surrounding air at temperatures $T_s$, $T_a$ [K], with emissivity $\\varepsilon$ and Stefan–Boltzmann constant $\\sigma=5.67\\times10^{-8}$ W&nbsp;m$^{-2}$&nbsp;K$^{-4}$:</p>
+        $$ q_r \\;=\\; \\pi\\,D_0\\,\\varepsilon\\,\\sigma\\,\\bigl(T_s^{\\,4}-T_a^{\\,4}\\bigr) $$
+
+        <h3>Convective cooling</h3>
+        <p>The film temperature is the mean of conductor and ambient air:</p>
+        $$ T_{\\text{film}} \\;=\\; \\tfrac{1}{2}\\bigl(T_s + T_a\\bigr) $$
+        <p>Air properties at $T_{\\text{film}}$ (IEEE&nbsp;738 eqs. 13a–15a):</p>
+        $$ \\mu_f \\;=\\; \\frac{1.458\\times10^{-6}\\,T_{\\text{film}}^{\\,1.5}}{T_{\\text{film}}-273.15+383.4} $$
+        $$ \\rho_f \\;=\\; \\frac{1.293-1.525\\times10^{-4} H_e + 6.379\\times10^{-9} H_e^{2}}{1+0.00367\\,(T_{\\text{film}}-273.15)} $$
+        $$ k_f \\;=\\; 2.424\\times10^{-2} + 7.477\\times10^{-5}(T_{\\text{film}}-273.15) - 4.407\\times10^{-9}(T_{\\text{film}}-273.15)^{2} $$
+        <p>Reynolds number for windspeed $V_w$:</p>
+        $$ N_{\\text{Re}} \\;=\\; \\frac{D_0\\,\\rho_f\\,|V_w|}{\\mu_f} $$
+        <p>Wind direction factor for the angle $\\phi$ between the wind vector and conductor axis (IEEE&nbsp;738 eq. 4a):</p>
+        $$ K_{\\text{angle}} \\;=\\; 1.194 - \\cos\\phi + 0.194\\cos 2\\phi + 0.368\\sin 2\\phi $$
+        <p>The convective cooling rate is the maximum of three regimes — natural (zero wind), low-wind forced and high-wind forced (IEEE&nbsp;738 eqs. 3a, 3b, 3c):</p>
+        $$ q_{c,\\text{nat}} \\;=\\; 3.645\\,\\rho_f^{0.5}\\,D_0^{0.75}\\,(T_s-T_a)^{1.25} $$
+        $$ q_{c,1} \\;=\\; K_{\\text{angle}}\\bigl(1.01 + 1.35\\,N_{\\text{Re}}^{0.52}\\bigr)\\,k_f\\,(T_s-T_a) $$
+        $$ q_{c,2} \\;=\\; K_{\\text{angle}}\\,0.754\\,N_{\\text{Re}}^{0.6}\\,k_f\\,(T_s-T_a) $$
+        $$ q_c \\;=\\; \\max\\bigl(q_{c,\\text{nat}},\\,q_{c,1},\\,q_{c,2}\\bigr) $$
+
+        <h3>Air density (ideal-gas, with humidity)</h3>
+        <p>The implementation uses the moist-air ideal-gas form rather than IEEE&nbsp;738 eq.&nbsp;14a, with the saturation vapor pressure of water given by the Tetens formula and partial pressure $p_{wv}=\\mathrm{RH}\\,p_{wv,\\text{sat}}(T)$:</p>
+        $$ p_{wv,\\text{sat}}(T) \\;=\\; 610.78\\,\\exp\\!\\left(\\frac{17.27\\,(T-273.15)}{(T-273.15)+237.3}\\right) $$
+        $$ \\rho_{\\text{air}} \\;=\\; \\frac{p-p_{wv}}{R_d\\,T} + \\frac{p_{wv}}{R_v\\,T},\\qquad R_d=287.058,\\;R_v=461.495\\;\\text{J kg}^{-1}\\text{K}^{-1} $$
+
+        <h3>Joule heating</h3>
+        <p>Per-unit-length ohmic loss for the AC-power-flow current magnitude $I$ and conductor resistance $R$ (Ω&nbsp;m$^{-1}$):</p>
+        $$ q_J \\;=\\; I^{2}\\,R $$
+
+        <h3>Default conductor parameters (ACSR Drake-like)</h3>
+        <ul class="info-panel-list">
+          <li>$D_0 = 0.02814\\;\\mathrm{m}$</li>
+          <li>$R = 8.688\\times10^{-5}\\;\\Omega\\,\\mathrm{m}^{-1}$</li>
+          <li>$\\varepsilon = 0.8$, $\\;\\alpha_s = 0.8$</li>
+          <li>Maximum design temperature $T_{\\max}=75\\,^{\\circ}\\mathrm{C}$</li>
+        </ul>
+
+        <h3>Workflow</h3>
+        <ol class="info-panel-list">
+          <li>Read line-flow CSV (base or N-1) — current $I$ comes from the AC power-flow solution.</li>
+          <li>Read <code>bus.geojson</code> for bus coordinates; compute each line's midpoint and forward bearing.</li>
+          <li>Match each midpoint to the nearest weather site (KDTree on <code>meta.csv</code>).</li>
+          <li>Slice the five weather parquets at the requested timestamp for $T_a$, $V_w$, $G$, RH, and air pressure.</li>
+          <li>Solve the heat balance above by bisection for the steady-state $T_s$.</li>
+        </ol>
+
+        <h3>Weather data</h3>
+        <p>
+          Weather inputs are sourced from NLR's
+          <a href="https://nsrdb.nrel.gov/" target="_blank" rel="noopener">National Solar Radiation Database (NSRDB)</a>,
+          extracted on the NLR Kestrel HPC from
+          <code>/kfs2/datasets/NSRDB/current/nsrdb_2022.h5</code>
+          and pre-sliced to the California footprint for the 2022 calendar year. The
+          per-variable parquet files used by this application live in
+          <code>temperature_calculation/data/ca_2022/</code>:
+        </p>
+        <ul class="info-panel-list">
+          <li><code>air_temperature.parquet</code> — ambient air temperature $T_a$ [°C], hourly.</li>
+          <li><code>ghi.parquet</code> — global horizontal irradiance $G$ [W&nbsp;m$^{-2}$], hourly.</li>
+          <li><code>surface_pressure.parquet</code> — surface air pressure $p$ [Pa], hourly.</li>
+          <li><code>wind_speed.parquet</code> — 10&nbsp;m wind speed $V_w$ [m&nbsp;s$^{-1}$], hourly.</li>
+          <li><code>wind_direction.parquet</code> — 10&nbsp;m wind direction [°], hourly; combined with the line bearing to obtain the wind/conductor angle $\\phi$.</li>
+          <li><code>meta.csv</code> — NSRDB site metadata (site id, latitude, longitude, elevation) used to build the KDTree for nearest-site lookup.</li>
+        </ul>
+        <p>
+          Relative humidity is held at the default $\\mathrm{RH}=0.5$ (50&nbsp;%); NSRDB
+          relative humidity can be substituted by extending the parquet set without
+          changing the solver.
+        </p>
+
+        <h3>Bibliography</h3>
+        <ol class="info-panel-bibliography">
+          <li>
+            IEEE Power and Energy Society. <em>IEEE Standard for Calculating the
+            Current-Temperature Relationship of Bare Overhead Conductors</em>,
+            IEEE Std 738-2012 (Revision of IEEE Std 738-2006 — Incorporates IEEE
+            Std 738-2012 Cor 1-2013), pp. 1–72, 23 Dec. 2013.
+            <a href="https://doi.org/10.1109/IEEESTD.2013.6692858" target="_blank" rel="noopener">doi:10.1109/IEEESTD.2013.6692858</a>.
+          </li>
+          <li>
+            IEEE Power and Energy Society. <em>IEEE Standard for Calculating the
+            Current-Temperature Relationship of Bare Overhead Conductors</em>,
+            IEEE Std 738-2023.
+          </li>
+          <li>
+            Bartos, M., Chester, M., Johnson, N., Gorman, B., Eisenberg, D.,
+            Linkov, I., &amp; Bates, M. (2016).
+            Impacts of rising air temperatures on electric transmission ampacity
+            and peak electricity load in the United States.
+            <em>Environmental Research Letters</em>, 11(11), 114008.
+            <a href="https://dx.doi.org/10.1088/1748-9326/11/11/114008" target="_blank" rel="noopener">doi:10.1088/1748-9326/11/11/114008</a>.
+          </li>
+          <li>
+            Tetens, O. (1930). Über einige meteorologische Begriffe.
+            <em>Zeitschrift für Geophysik</em>, 6, 297–309.
+            (Saturation vapor pressure formula; see
+            <a href="https://en.wikipedia.org/wiki/Vapour_pressure_of_water" target="_blank" rel="noopener">Wikipedia: Vapour pressure of water</a>.)
+          </li>
+          <li>
+            Sengupta, M., Xie, Y., Lopez, A., Habte, A., Maclaurin, G., &amp; Shelby, J. (2018).
+            The National Solar Radiation Data Base (NSRDB).
+            <em>Renewable and Sustainable Energy Reviews</em>, 89, 51–60.
+            <a href="https://doi.org/10.1016/j.rser.2018.03.003" target="_blank" rel="noopener">doi:10.1016/j.rser.2018.03.003</a>.
+            Data accessed on the NLR Kestrel HPC at
+            <code>/kfs2/datasets/NSRDB/current/nsrdb_2022.h5</code>.
+          </li>
+        </ol>
+      </div>
+    `;
+
+    let infoPanelEl = null;
+    let infoPanelOverlayEl = null;
+    let infoPanelTypeset = false;
+
+    const closeInfoPanel = () => {
+      if (infoPanelEl) {
+        infoPanelEl.classList.remove("open");
+      }
+      if (infoPanelOverlayEl) {
+        infoPanelOverlayEl.classList.remove("open");
+      }
+    };
+
+    const openInfoPanel = () => {
+      if (!infoPanelEl) {
+        return;
+      }
+      infoPanelEl.classList.add("open");
+      if (infoPanelOverlayEl) {
+        infoPanelOverlayEl.classList.add("open");
+      }
+      if (!infoPanelTypeset && window.MathJax && window.MathJax.typesetPromise) {
+        window.MathJax.typesetPromise([infoPanelEl]).then(() => {
+          infoPanelTypeset = true;
+        }).catch(() => {});
+      }
+    };
+
+    const createInfoPanel = () => {
+      if (infoPanelEl) {
+        return;
+      }
+      const overlay = document.createElement("div");
+      overlay.className = "info-panel-overlay";
+      overlay.addEventListener("click", closeInfoPanel);
+      document.body.appendChild(overlay);
+      infoPanelOverlayEl = overlay;
+
+      const panel = document.createElement("aside");
+      panel.className = "info-panel";
+      panel.setAttribute("role", "dialog");
+      panel.setAttribute("aria-label", "Conductor temperature methodology");
+      panel.innerHTML = INFO_PANEL_HTML;
+      document.body.appendChild(panel);
+      infoPanelEl = panel;
+
+      const closeBtn = panel.querySelector("#info-panel-close");
+      if (closeBtn) {
+        closeBtn.addEventListener("click", closeInfoPanel);
+      }
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          closeInfoPanel();
+        }
+      });
+    };
+
     const ViewModeControl = L.Control.extend({
       options: { position: "topleft" },
       onAdd() {
@@ -5408,18 +6241,28 @@
         contingencyBtn.type = "button";
         contingencyBtn.textContent = "Contingency Analysis";
 
+        const infoBtn = L.DomUtil.create("button", "view-mode-info-btn", container);
+        infoBtn.id = "view-mode-info";
+        infoBtn.type = "button";
+        infoBtn.title = "Conductor temperature methodology";
+        infoBtn.setAttribute("aria-label", "Information");
+        infoBtn.innerHTML = "<span class=\"info-glyph\">i</span>";
+
         L.DomEvent.disableClickPropagation(container);
         L.DomEvent.disableScrollPropagation(container);
 
         defaultBtn.addEventListener("click", () => setViewMode("default"));
         baseCaseBtn.addEventListener("click", () => setViewMode("baseCase"));
         contingencyBtn.addEventListener("click", () => setViewMode("contingency"));
+        infoBtn.addEventListener("click", () => openInfoPanel());
 
         return container;
       }
     });
 
     map.addControl(new ViewModeControl());
+
+    createInfoPanel();
 
     const tabsContainer = document.getElementById("view-mode-tabs");
     if (tabsContainer) {
