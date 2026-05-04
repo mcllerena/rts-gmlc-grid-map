@@ -88,6 +88,30 @@
   let violationGlowButton = null;
   let isViolationGlowActive = false;
   let violationGlowSummaryRender = null;
+
+  // ── Simulation (annual conductor temperature animation) ────────────────
+  let simulationControlContainer = null;
+  let selectedSimulationSeason = "summer";
+  let simulationTempByUid = {};       // uid -> current frame's °C
+  let simulationRFactorByUid = {};    // uid -> current frame's R multiplier
+  let simulationFrameIndex = 0;
+  let simulationIsRunning = false;
+  let simulationFrameId = 0;
+  let simulationLastTickTs = 0;
+  let simulationFps = 24;
+  let simulationManifestBySeason = new Map(); // season -> manifest object
+  let simulationTimestampElement = null;
+  let simulationFrameSlider = null;
+  let simulationPlayPauseButton = null;
+  let simulationFrameLabelElement = null;
+  let simulationScope = "year";       // "year" | "month"
+  let simulationSelectedMonth = 0;    // 0 = January … 11 = December
+  let simulationMonthSelect = null;
+  let simulationMonthLabel = null;
+
+  // Forward-declared holder so module-scope simulation functions can refresh
+  // hover popups (the actual implementation is created inside initializeMap).
+  let refreshOpenLinePopupsImpl = () => {};
   let plotlyLoaderPromise = null;
   const flowAngleEpsilonDeg = 1e-5;
   const popupLayers = [];
@@ -451,6 +475,19 @@
           dashArray: ""
         };
       }
+    }
+
+    if (currentViewMode === "simulation") {
+      const value = Number(simulationTempByUid[uid]);
+      if (Number.isFinite(value)) {
+        return {
+          color: colorForMetricValue(value, 25, 125, "tempCond"),
+          weight: 3.2,
+          opacity: 0.95,
+          dashArray: ""
+        };
+      }
+      return defaultLineStyle;
     }
 
     if (selectedContingencyUid && uid === selectedContingencyUid) {
@@ -2322,10 +2359,17 @@
     const hasBcGenMetric = !!activeBaseCaseGeneratorMetric;
     const shouldShowBaseCase = currentViewMode === "baseCase" && (hasBcLineMetric || hasBcBusMetric || hasBcGenMetric);
 
-    const shouldShow = shouldShowContingency || shouldShowBaseCase;
+    const shouldShowSimulation = currentViewMode === "simulation";
+
+    const shouldShow = shouldShowContingency || shouldShowBaseCase || shouldShowSimulation;
     lineColorLegendElement.style.display = shouldShow ? "block" : "none";
 
     if (!shouldShow) {
+      return;
+    }
+
+    if (shouldShowSimulation) {
+      lineColorLegendElement.innerHTML = legendSectionHtml("tempCond");
       return;
     }
 
@@ -3077,6 +3121,377 @@
     });
 
     map.addControl(new BaseCaseControl());
+  };
+
+  // ── Simulation: annual conductor temperature animation ─────────────────
+  const SIMULATION_TIMESERIES_URL = (season) => `./ca_results/${season}/temperature_timeseries.json`;
+
+  const formatSimulationTimestamp = (date) => {
+    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${days[date.getUTCDay()]} ${months[date.getUTCMonth()]} ${date.getUTCDate()}, ${date.getUTCFullYear()} — ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())} UTC`;
+  };
+
+  const stopSimulationLoop = () => {
+    simulationIsRunning = false;
+    if (simulationFrameId) {
+      clearInterval(simulationFrameId);
+      simulationFrameId = 0;
+    }
+    if (simulationPlayPauseButton) {
+      simulationPlayPauseButton.textContent = "▶ Run";
+      simulationPlayPauseButton.classList.remove("active");
+    }
+  };
+
+  const getSimulationFrameRange = () => {
+    // Returns [startFrame, endFrameInclusive] for the active scope.
+    const manifest = simulationManifestBySeason.get(selectedSimulationSeason);
+    const count = (manifest && manifest.count) || 0;
+    if (count <= 0) return { start: 0, end: 0 };
+    if (simulationScope !== "month") {
+      return { start: 0, end: count - 1 };
+    }
+    const startMs = Date.parse(manifest.startIso || "2020-01-01T00:00:00Z");
+    const stepMs = (manifest.stepMinutes || 60) * 60 * 1000;
+    let start = -1;
+    let end = -1;
+    for (let i = 0; i < count; i += 1) {
+      const m = new Date(startMs + i * stepMs).getUTCMonth();
+      if (m === simulationSelectedMonth) {
+        if (start < 0) start = i;
+        end = i;
+      } else if (start >= 0) {
+        break;
+      }
+    }
+    if (start < 0) {
+      return { start: 0, end: count - 1 };
+    }
+    return { start, end };
+  };
+
+  const updateSimulationSliderBounds = () => {
+    if (!simulationFrameSlider) return;
+    const { start, end } = getSimulationFrameRange();
+    simulationFrameSlider.min = String(start);
+    simulationFrameSlider.max = String(end);
+  };
+
+  const ensureSimulationDataLoaded = async (season) => {
+    if (simulationManifestBySeason.has(season)) {
+      return simulationManifestBySeason.get(season);
+    }
+    const res = await fetch(SIMULATION_TIMESERIES_URL(season));
+    if (!res.ok) {
+      throw new Error(`Failed to load ${SIMULATION_TIMESERIES_URL(season)}: ${res.status}`);
+    }
+    const manifest = await res.json();
+    simulationManifestBySeason.set(season, manifest);
+    if (selectedSimulationSeason === season && currentViewMode === "simulation") {
+      const { start, end } = getSimulationFrameRange();
+      simulationFrameIndex = Math.min(Math.max(simulationFrameIndex, start), end);
+      updateSimulationSliderBounds();
+      if (simulationFrameSlider) {
+        simulationFrameSlider.value = String(simulationFrameIndex);
+      }
+      applySimulationFrame(simulationFrameIndex);
+    }
+    return manifest;
+  };
+
+  const applySimulationFrame = (index) => {
+    const manifest = simulationManifestBySeason.get(selectedSimulationSeason);
+    if (!manifest || !manifest.lines) {
+      return;
+    }
+    const count = manifest.count || 0;
+    if (count <= 0) return;
+    const { start, end } = getSimulationFrameRange();
+    const span = end - start + 1;
+    const offset = ((Math.round(index) - start) % span + span) % span;
+    const i = start + offset;
+    simulationFrameIndex = i;
+
+    const next = {};
+    const lines = manifest.lines;
+    for (const uid in lines) {
+      const arr = lines[uid];
+      if (arr && arr.length > i) {
+        next[uid] = arr[i];
+      }
+    }
+    simulationTempByUid = next;
+
+    const rFactorMap = manifest.rFactor || {};
+    const nextR = {};
+    for (const uid in rFactorMap) {
+      const arr = rFactorMap[uid];
+      if (arr && arr.length > i) {
+        nextR[uid] = arr[i];
+      }
+    }
+    simulationRFactorByUid = nextR;
+
+    // Update timestamp banner.
+    if (simulationTimestampElement) {
+      const startMs = Date.parse(manifest.startIso || "2020-01-01T00:00:00Z");
+      const stepMs = (manifest.stepMinutes || 60) * 60 * 1000;
+      const ts = new Date(startMs + i * stepMs);
+      simulationTimestampElement.querySelector(".simulation-timestamp-text").textContent =
+        formatSimulationTimestamp(ts);
+    }
+    if (simulationFrameSlider && simulationFrameSlider.value !== String(i)) {
+      simulationFrameSlider.value = String(i);
+    }
+    if (simulationFrameLabelElement) {
+      const localIndex = i - start + 1;
+      simulationFrameLabelElement.textContent = `Frame ${localIndex} / ${span}`;
+    }
+
+    if (currentViewMode === "simulation") {
+      refreshLineHighlight();
+      refreshOpenLinePopupsImpl();
+    }
+  };
+
+  const simulationTick = () => {
+    if (!simulationIsRunning) return;
+    try {
+      const manifest = simulationManifestBySeason.get(selectedSimulationSeason);
+      const count = (manifest && manifest.count) || 0;
+      if (count <= 0) return;
+      const { start, end } = getSimulationFrameRange();
+      const span = end - start + 1;
+      const next = start + (((simulationFrameIndex - start + 1) % span + span) % span);
+      applySimulationFrame(next);
+    } catch (err) {
+      console.error("simulationTick error", err);
+    }
+  };
+
+  const startSimulationLoop = () => {
+    if (simulationIsRunning) return;
+    simulationIsRunning = true;
+    if (simulationPlayPauseButton) {
+      simulationPlayPauseButton.textContent = "⏸ Pause";
+      simulationPlayPauseButton.classList.add("active");
+    }
+    if (simulationFrameId) clearInterval(simulationFrameId);
+    const interval = Math.max(8, Math.round(1000 / Math.max(1, simulationFps)));
+    simulationFrameId = setInterval(simulationTick, interval);
+  };
+
+  // Used by the speed dropdown to apply the new fps without losing playback state.
+  const restartSimulationLoopIfRunning = () => {
+    if (!simulationIsRunning) return;
+    if (simulationFrameId) clearInterval(simulationFrameId);
+    const interval = Math.max(8, Math.round(1000 / Math.max(1, simulationFps)));
+    simulationFrameId = setInterval(simulationTick, interval);
+  };
+
+  const createSimulationControl = () => {
+    const SimulationControl = L.Control.extend({
+      options: { position: "topleft" },
+      onAdd() {
+        const container = L.DomUtil.create("div", "contingency-control simulation-control leaflet-bar");
+        simulationControlContainer = container;
+        container.style.display = "none";
+
+        const panel = L.DomUtil.create("div", "contingency-panel", container);
+
+        const button = L.DomUtil.create("button", "contingency-toggle-btn active", panel);
+        button.type = "button";
+        button.textContent = "Simulation";
+        button.title = "Annual conductor temperature animation";
+
+        const dropdownWrap = L.DomUtil.create("div", "contingency-dropdown-wrap", panel);
+        dropdownWrap.style.display = "block";
+
+        const seasonLabel = L.DomUtil.create("div", "simulation-field-label", dropdownWrap);
+        seasonLabel.textContent = "Season";
+
+        const seasonSelect = L.DomUtil.create("select", "contingency-select contingency-season-select", dropdownWrap);
+        const summerOption = L.DomUtil.create("option", "", seasonSelect);
+        summerOption.value = "summer";
+        summerOption.textContent = "Summer (peak case)";
+        const winterOption = L.DomUtil.create("option", "", seasonSelect);
+        winterOption.value = "winter";
+        winterOption.textContent = "Winter (peak case)";
+        seasonSelect.value = selectedSimulationSeason;
+
+        const scopeLabel = L.DomUtil.create("div", "simulation-field-label", dropdownWrap);
+        scopeLabel.textContent = "Range";
+
+        const scopeWrap = L.DomUtil.create("div", "simulation-scope-toggle", dropdownWrap);
+        const yearScopeBtn = L.DomUtil.create("button", "simulation-scope-btn", scopeWrap);
+        yearScopeBtn.type = "button";
+        yearScopeBtn.textContent = "Full Year";
+        yearScopeBtn.classList.toggle("active", simulationScope === "year");
+
+        const monthScopeBtn = L.DomUtil.create("button", "simulation-scope-btn", scopeWrap);
+        monthScopeBtn.type = "button";
+        monthScopeBtn.textContent = "By Month";
+        monthScopeBtn.classList.toggle("active", simulationScope === "month");
+
+        const monthLabel = L.DomUtil.create("div", "simulation-field-label", dropdownWrap);
+        monthLabel.textContent = "Month";
+        monthLabel.style.display = simulationScope === "month" ? "" : "none";
+        simulationMonthLabel = monthLabel;
+
+        const monthSelect = L.DomUtil.create("select", "contingency-select", dropdownWrap);
+        monthSelect.style.display = simulationScope === "month" ? "" : "none";
+        simulationMonthSelect = monthSelect;
+        const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
+          "July", "August", "September", "October", "November", "December"];
+        MONTH_NAMES.forEach((name, idx) => {
+          const o = L.DomUtil.create("option", "", monthSelect);
+          o.value = String(idx);
+          o.textContent = name;
+          if (idx === simulationSelectedMonth) o.selected = true;
+        });
+
+        const speedLabel = L.DomUtil.create("div", "simulation-field-label", dropdownWrap);
+        speedLabel.textContent = "Playback Speed";
+
+        const speedSelect = L.DomUtil.create("select", "contingency-select", dropdownWrap);
+        [
+          { v: 8, t: "Slow (8 fps)" },
+          { v: 16, t: "Normal (16 fps)" },
+          { v: 24, t: "Fast (24 fps)" },
+          { v: 48, t: "Very Fast (48 fps)" }
+        ].forEach((opt) => {
+          const o = L.DomUtil.create("option", "", speedSelect);
+          o.value = String(opt.v);
+          o.textContent = opt.t;
+          if (opt.v === simulationFps) o.selected = true;
+        });
+
+        const sliderLabel = L.DomUtil.create("div", "simulation-field-label simulation-frame-label", dropdownWrap);
+        sliderLabel.textContent = "Frame 1 / —";
+        simulationFrameLabelElement = sliderLabel;
+
+        const slider = L.DomUtil.create("input", "simulation-frame-slider", dropdownWrap);
+        slider.type = "range";
+        slider.min = "0";
+        slider.max = "0";
+        slider.step = "1";
+        slider.value = "0";
+        simulationFrameSlider = slider;
+
+        const actionsCard = L.DomUtil.create("div", "control-actions-card simulation-actions", dropdownWrap);
+
+        const playBtn = L.DomUtil.create("button", "simulation-run-btn", actionsCard);
+        playBtn.type = "button";
+        playBtn.textContent = "▶ Run";
+        simulationPlayPauseButton = playBtn;
+
+        const resetBtn = L.DomUtil.create("button", "simulation-stop-btn", actionsCard);
+        resetBtn.type = "button";
+        resetBtn.textContent = "⏹ Reset";
+
+        // Wire up events.
+        button.addEventListener("click", () => {
+          const showing = dropdownWrap.style.display !== "none";
+          dropdownWrap.style.display = showing ? "none" : "block";
+          button.classList.toggle("active", !showing);
+        });
+
+        seasonSelect.addEventListener("change", () => {
+          selectedSimulationSeason = seasonSelect.value;
+          stopSimulationLoop();
+          ensureSimulationDataLoaded(selectedSimulationSeason)
+            .then(() => {
+              const { start } = getSimulationFrameRange();
+              simulationFrameIndex = start;
+              updateSimulationSliderBounds();
+              applySimulationFrame(start);
+            })
+            .catch((err) => console.error(err));
+        });
+
+        const applyScopeChange = () => {
+          yearScopeBtn.classList.toggle("active", simulationScope === "year");
+          monthScopeBtn.classList.toggle("active", simulationScope === "month");
+          const showMonth = simulationScope === "month";
+          if (simulationMonthLabel) simulationMonthLabel.style.display = showMonth ? "" : "none";
+          if (simulationMonthSelect) simulationMonthSelect.style.display = showMonth ? "" : "none";
+          stopSimulationLoop();
+          updateSimulationSliderBounds();
+          const { start } = getSimulationFrameRange();
+          applySimulationFrame(start);
+        };
+
+        yearScopeBtn.addEventListener("click", () => {
+          if (simulationScope === "year") return;
+          simulationScope = "year";
+          applyScopeChange();
+        });
+
+        monthScopeBtn.addEventListener("click", () => {
+          if (simulationScope === "month") return;
+          simulationScope = "month";
+          applyScopeChange();
+        });
+
+        monthSelect.addEventListener("change", () => {
+          const v = Number(monthSelect.value);
+          if (!Number.isFinite(v)) return;
+          simulationSelectedMonth = Math.max(0, Math.min(11, Math.round(v)));
+          stopSimulationLoop();
+          updateSimulationSliderBounds();
+          const { start } = getSimulationFrameRange();
+          applySimulationFrame(start);
+        });
+
+        speedSelect.addEventListener("change", () => {
+          const v = Number(speedSelect.value);
+          if (Number.isFinite(v) && v > 0) {
+            simulationFps = v;
+            restartSimulationLoopIfRunning();
+          }
+        });
+
+        slider.addEventListener("input", () => {
+          const v = Number(slider.value);
+          if (!Number.isFinite(v)) return;
+          stopSimulationLoop();
+          applySimulationFrame(Math.round(v));
+        });
+
+        playBtn.addEventListener("click", () => {
+          if (simulationIsRunning) {
+            stopSimulationLoop();
+          } else {
+            ensureSimulationDataLoaded(selectedSimulationSeason)
+              .then(() => startSimulationLoop())
+              .catch((err) => console.error(err));
+          }
+        });
+
+        resetBtn.addEventListener("click", () => {
+          stopSimulationLoop();
+          const { start } = getSimulationFrameRange();
+          applySimulationFrame(start);
+        });
+
+        L.DomEvent.disableClickPropagation(container);
+        L.DomEvent.disableScrollPropagation(container);
+        return container;
+      }
+    });
+
+    map.addControl(new SimulationControl());
+
+    // Floating timestamp banner just below the view-mode tabs.
+    const banner = document.createElement("div");
+    banner.className = "simulation-timestamp-banner";
+    banner.style.display = "none";
+    banner.innerHTML = '<span class="simulation-timestamp-label">Conductor Temperature</span>'
+      + '<span class="simulation-timestamp-text">—</span>';
+    map.getContainer().appendChild(banner);
+    simulationTimestampElement = banner;
   };
 
   const categoryPalette = [
@@ -5058,36 +5473,66 @@
       }, 3000);
     };
 
+    const buildLineHoverPopupHtml = (feature) => {
+      const props = (feature && feature.properties) || {};
+      const uid = String(props.UID || "").trim();
+      const name = lineNameByUid[uid] || uid || "Line";
+
+      const formatNumber = (value, digits = 4) => {
+        const n = Number(value);
+        return Number.isFinite(n) ? n.toFixed(digits) : "—";
+      };
+
+      let tempValue = null;
+      let resistanceValue = Number(props.R);
+      if (currentViewMode === "simulation") {
+        tempValue = simulationTempByUid[uid];
+        const rFactor = Number(simulationRFactorByUid[uid]);
+        const baseR = Number(props.R);
+        if (Number.isFinite(rFactor) && Number.isFinite(baseR)) {
+          resistanceValue = baseR * rFactor;
+        }
+      } else if (currentViewMode === "contingency" && activeContingencyConverged) {
+        const row = activeFlowRowsByUid[uid];
+        if (row) tempValue = row[TEMP_COND_COLUMN];
+      } else if (currentViewMode === "baseCase") {
+        const row = baseCaseFlowRowsByUid[uid];
+        if (row) tempValue = row[TEMP_COND_COLUMN];
+      }
+      const tempNum = Number(tempValue);
+      const tempText = Number.isFinite(tempNum)
+        ? `${tempNum.toFixed(1)} °C / ${(tempNum * 9 / 5 + 32).toFixed(1)} °F`
+        : "—";
+
+      return `<b>${esc(name)}</b><br>`
+        + `<b>Resistance (R):</b> ${esc(formatNumber(resistanceValue))} Ω<br>`
+        + `<b>Reactance (X):</b> ${esc(formatNumber(props.X))} Ω<br>`
+        + `<b>Conductor Temp:</b> ${esc(tempText)}`;
+    };
+
     const refreshOpenLinePopups = () => {
       if (!linesLayer) {
         return;
       }
 
       linesLayer.eachLayer((layer) => {
-        if (!layer || !layer.isPopupOpen || !layer.getPopup || !layer.isPopupOpen()) {
-          return;
-        }
-
-        const popup = layer.getPopup();
-        if (!popup || !popup.setContent) {
-          return;
-        }
-
-        const feature = layer.feature || {};
-        const uid = String((feature.properties && feature.properties.UID) || "").trim();
-
-        if (currentViewMode === "contingency" && selectedContingencyUid && selectedContingencySeason && activeContingencyConverged) {
-          popup.setContent(contingencyFlowRowToPopupHtml(
-            activeFlowRowsByUid[uid],
-            uid === selectedContingencyUid
-          ));
-        } else if (currentViewMode === "baseCase") {
-          popup.setContent(baseCaseLineFlowPopupHtml(baseCaseFlowRowsByUid[uid]));
-        } else {
-          popup.setContent(propertiesToPopupHtml(feature.properties || {}, "Line"));
+        try {
+          if (!layer || !layer.isPopupOpen || !layer.getPopup || !layer.isPopupOpen()) {
+            return;
+          }
+          const popup = layer.getPopup();
+          if (!popup || !popup.setContent) return;
+          const feature = layer.feature || {};
+          popup.setContent(buildLineHoverPopupHtml(feature));
+        } catch (err) {
+          // Don't let a single popup failure break the simulation loop.
+          console.error("refreshOpenLinePopups error", err);
         }
       });
     };
+
+    // Expose to the module-scope simulation tick.
+    refreshOpenLinePopupsImpl = refreshOpenLinePopups;
 
     const busContingencyPopupHtml = (feature) => {
       const props = (feature && feature.properties) || {};
@@ -5516,22 +5961,7 @@
     linesLayer = L.geoJSON(curvedBranchGeo, {
       style: (feature) => lineStyleForFeature(feature),
       onEachFeature: (feature, layer) => {
-        bindHoverPopup(layer, () => {
-          const uid = String(((feature && feature.properties) || {}).UID || "").trim();
-
-          if (currentViewMode === "contingency" && selectedContingencyUid && selectedContingencySeason && activeContingencyConverged) {
-            return contingencyFlowRowToPopupHtml(
-              activeFlowRowsByUid[uid],
-              uid === selectedContingencyUid
-            );
-          }
-
-          if (currentViewMode === "baseCase") {
-            return baseCaseLineFlowPopupHtml(baseCaseFlowRowsByUid[uid]);
-          }
-
-          return propertiesToPopupHtml(feature.properties || {}, "Line");
-        });
+        bindHoverPopup(layer, () => buildLineHoverPopupHtml(feature));
       }
     }).addTo(map);
 
@@ -5557,6 +5987,8 @@
         }
       }
     );
+
+    createSimulationControl();
 
     // Pre-load default base case season data
     loadBaseCaseData(selectedBaseCaseSeason).then(() => {
@@ -5933,14 +6365,15 @@
     const setViewMode = (mode) => {
       const isContingency = mode === "contingency";
       const isBaseCase = mode === "baseCase";
+      const isSimulation = mode === "simulation";
       currentViewMode = mode;
 
-      setTheme((isContingency || isBaseCase) ? "dark" : "light");
+      setTheme((isContingency || isBaseCase || isSimulation) ? "dark" : "light");
 
       // Keep the overlays in a deterministic state by mode.
       setLayerVisible(linesLayer, true);
-      setLayerVisible(areasLayer, !isContingency && !isBaseCase);
-      setLayerVisible(genConnLayer, !isContingency && !isBaseCase);
+      setLayerVisible(areasLayer, !isContingency && !isBaseCase && !isSimulation);
+      setLayerVisible(genConnLayer, !isContingency && !isBaseCase && !isSimulation);
 
       // Keep generators visible in both modes; contingency starts with purple generator markers enabled.
       setAllGeneratorCategories(true);
@@ -5950,16 +6383,27 @@
       setGeneratorMarkerColors(isContingency);
 
       if (genLegendElement) {
-        genLegendElement.style.display = (isContingency || isBaseCase) ? "none" : "block";
+        genLegendElement.style.display = (isContingency || isBaseCase || isSimulation) ? "none" : "block";
       }
       if (busLegendElement) {
-        busLegendElement.style.display = (isContingency || isBaseCase) ? "none" : "block";
+        busLegendElement.style.display = (isContingency || isBaseCase || isSimulation) ? "none" : "block";
       }
       if (contingencyControlContainer) {
         contingencyControlContainer.style.display = isContingency ? "block" : "none";
       }
       if (baseCaseControlContainer) {
         baseCaseControlContainer.style.display = isBaseCase ? "block" : "none";
+      }
+      if (simulationControlContainer) {
+        simulationControlContainer.style.display = isSimulation ? "block" : "none";
+      }
+      if (simulationTimestampElement) {
+        simulationTimestampElement.style.display = isSimulation ? "flex" : "none";
+      }
+      if (!isSimulation) {
+        stopSimulationLoop();
+      } else {
+        ensureSimulationDataLoaded(selectedSimulationSeason).catch((err) => console.error(err));
       }
 
       refreshFlowAnimationControlState();
@@ -5973,13 +6417,14 @@
       refreshOpenBusPopups();
       refreshOpenGeneratorPopups();
 
-      setOverlayLegendEntryVisible("Generator Connections", !isContingency && !isBaseCase);
+      setOverlayLegendEntryVisible("Generator Connections", !isContingency && !isBaseCase && !isSimulation);
       setOverlayLegendEntryVisible("Buses", isContingency || isBaseCase);
       setOverlayLegendEntryVisible("Generators", isContingency || isBaseCase);
 
       const defaultTab = document.getElementById("view-mode-default");
       const baseCaseTab = document.getElementById("view-mode-basecase");
       const contingencyTab = document.getElementById("view-mode-contingency");
+      const simulationTab = document.getElementById("view-mode-simulation");
       if (defaultTab) {
         defaultTab.classList.toggle("active", mode === "default");
       }
@@ -5988,6 +6433,9 @@
       }
       if (contingencyTab) {
         contingencyTab.classList.toggle("active", isContingency);
+      }
+      if (simulationTab) {
+        simulationTab.classList.toggle("active", isSimulation);
       }
     };
 
@@ -6241,6 +6689,11 @@
         contingencyBtn.type = "button";
         contingencyBtn.textContent = "Contingency Analysis";
 
+        const simulationBtn = L.DomUtil.create("button", "view-mode-tab", container);
+        simulationBtn.id = "view-mode-simulation";
+        simulationBtn.type = "button";
+        simulationBtn.textContent = "Simulation";
+
         const infoBtn = L.DomUtil.create("button", "view-mode-info-btn", container);
         infoBtn.id = "view-mode-info";
         infoBtn.type = "button";
@@ -6254,6 +6707,7 @@
         defaultBtn.addEventListener("click", () => setViewMode("default"));
         baseCaseBtn.addEventListener("click", () => setViewMode("baseCase"));
         contingencyBtn.addEventListener("click", () => setViewMode("contingency"));
+        simulationBtn.addEventListener("click", () => setViewMode("simulation"));
         infoBtn.addEventListener("click", () => openInfoPanel());
 
         return container;

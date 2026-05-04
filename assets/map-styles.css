@@ -1461,3 +1461,149 @@ body.dark-mode .bc-plot-empty {
   color: #cbd5e1;
   background: #0f172a;
 }
+
+/* ── Simulation tab styles ───────────────────────────────────────────── */
+.simulation-control .contingency-toggle-btn {
+  /* Mirror BaseCase / Contingency look. */
+}
+
+.simulation-field-label {
+  font: 11px/1.2 sans-serif;
+  font-weight: 700;
+  color: #374151;
+  margin: 8px 0 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.simulation-frame-label {
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #1f2937;
+}
+
+.simulation-frame-slider {
+  width: 100%;
+  margin: 0 0 6px;
+  accent-color: #2563eb;
+}
+
+.simulation-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.simulation-run-btn,
+.simulation-stop-btn {
+  flex: 1;
+  border: 0;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font: 12px/1.2 sans-serif;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.simulation-run-btn {
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.simulation-run-btn.active {
+  background: #ea580c;
+}
+
+.simulation-run-btn:hover {
+  filter: brightness(1.08);
+}
+
+.simulation-stop-btn {
+  background: #475569;
+  color: #ffffff;
+}
+
+.simulation-stop-btn:hover {
+  filter: brightness(1.12);
+}
+
+/* Floating year-timestamp banner just below the view-mode tabs. */
+.simulation-timestamp-banner {
+  position: absolute;
+  top: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.92);
+  color: #f8fafc;
+  border-radius: 6px;
+  padding: 8px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  font: 13px/1.2 sans-serif;
+  pointer-events: none;
+  min-width: 220px;
+}
+
+.simulation-timestamp-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #93c5fd;
+}
+
+.simulation-timestamp-text {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #f8fafc;
+}
+
+body.dark-mode .simulation-field-label {
+  color: #cbd5e1;
+}
+
+body.dark-mode .simulation-frame-label {
+  color: #f1f5f9;
+}
+
+/* Simulation scope toggle (Year vs By Month). */
+.simulation-scope-toggle {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.simulation-scope-btn {
+  flex: 1;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  padding: 5px 8px;
+  background: #f3f4f6;
+  color: #1f2937;
+  font: 11px/1.2 sans-serif;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.simulation-scope-btn.active {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+}
+
+body.dark-mode .simulation-scope-btn {
+  background: #1f2937;
+  color: #e5e7eb;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+body.dark-mode .simulation-scope-btn.active {
+  background: #3b82f6;
+  color: #ffffff;
+  border-color: #3b82f6;
+}
