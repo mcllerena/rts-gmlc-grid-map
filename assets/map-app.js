@@ -6455,6 +6455,8 @@
             <tr><td>$T_a$</td><td>Ambient air temperature</td><td>K</td></tr>
             <tr><td>$T_{\\text{film}}$</td><td>Boundary-layer (film) temperature, $\\tfrac{1}{2}(T_s+T_a)$</td><td>K</td></tr>
             <tr><td>$I$</td><td>Conductor current magnitude (AC power-flow solution)</td><td>A</td></tr>
+            <tr><td>$P_{ij},\\,Q_{ij}$</td><td>Active / reactive power flowing out of bus $i$ on branch $i\\!\\to\\!j$</td><td>MW, MVAr</td></tr>
+            <tr><td>$|V_i|$</td><td>Voltage magnitude at the sending bus $i$</td><td>kV (line-to-line)</td></tr>
             <tr><td>$R$</td><td>Conductor AC resistance per unit length</td><td>Ω&nbsp;m$^{-1}$</td></tr>
             <tr><td>$D_0$</td><td>Outside conductor diameter</td><td>m</td></tr>
             <tr><td>$\\alpha_s$</td><td>Solar absorptivity of conductor surface</td><td>—</td></tr>
@@ -6494,6 +6496,26 @@
           AC power-flow current $I$. The equation is solved by bisection on
           $T_s\\in[T_{\\text{amb}},\\,250\\,^{\\circ}\\mathrm{C}]$ to a tolerance
           of $10^{-3}\\,\\mathrm{K}$.
+        </p>
+
+        <h3>Current calculation</h3>
+        <p>
+          The conductor current magnitude $I$ is obtained directly from the AC
+          power-flow solution at the sending end of each branch $i\\!\\to\\!j$
+          using the apparent power and bus voltage:
+        </p>
+        $$ S_{ij} \\;=\\; \\sqrt{P_{ij}^{\\,2} + Q_{ij}^{\\,2}} $$
+        $$ I \\;=\\; \\frac{S_{ij}\\times 10^{6}}{\\sqrt{3}\\,|V_i|\\times 10^{3}}
+                \\;=\\; \\frac{1000\\,S_{ij}\\,[\\mathrm{MVA}]}{\\sqrt{3}\\,|V_i|\\,[\\mathrm{kV}]} $$
+        <p>
+          where $P_{ij}$ [MW] and $Q_{ij}$ [MVAr] are the active and reactive
+          power flowing out of bus $i$ on the branch, and $|V_i|$ [kV] is the
+          line-to-line voltage magnitude at the sending bus. The factor
+          $\\sqrt{3}$ converts three-phase line-to-line quantities to the
+          per-conductor current used in the IEEE&nbsp;738 heat balance. Both
+          $|V_i|$ and $P_{ij},Q_{ij}$ come from the same AC&nbsp;power-flow
+          snapshot (base case or N-1 contingency) so the resulting $I$ is
+          self-consistent with the voltage profile.
         </p>
 
         <h3>Solar heating</h3>
