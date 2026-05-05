@@ -11,9 +11,14 @@ files that the browser can fetch. Output schema:
 
 Run:  python3 scripts/build_temperature_timeseries.py
 """
+
 from __future__ import annotations
-import json, re, sys
+
+import json
+import re
+import sys
 from pathlib import Path
+
 import h5py
 import numpy as np
 
@@ -94,7 +99,9 @@ def process_season(h5_path: Path, uid_map: dict[str, str], out_path: Path) -> No
             if uid is None:
                 m = re.match(r"^(\d{4})_(\d{4})_(.+)$", key)
                 if m:
-                    uid = uid_map.get(f"{int(m.group(1)):04d}_{int(m.group(2)):04d}_{m.group(3)}")
+                    uid = uid_map.get(
+                        f"{int(m.group(1)):04d}_{int(m.group(2)):04d}_{m.group(3)}"
+                    )
             if uid is None:
                 print(f"[warn] unmapped h5 key: {key}", file=sys.stderr)
                 continue
@@ -123,15 +130,31 @@ def process_season(h5_path: Path, uid_map: dict[str, str], out_path: Path) -> No
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(manifest, separators=(",", ":")))
     size_mb = out_path.stat().st_size / (1024 * 1024)
-    print(f"[ok]   {out_path}  ({len(lines_out)} lines, {count} frames, {size_mb:.2f} MB)")
+    print(
+        f"[ok]   {out_path}  ({len(lines_out)} lines, {count} frames, {size_mb:.2f} MB)"
+    )
 
 
 def main() -> int:
     uid_map = build_uid_map(GIS_BRANCH)
     for season in ("summer", "winter"):
         for solver in ("fnsl", "inlf"):
-            h5_path = ROOT / "ca_results" / season / "base_case" / solver / f"{season}_{solver}_timeseries.h5"
-            out_path = ROOT / "ca_results" / season / "base_case" / solver / "temperature_timeseries.json"
+            h5_path = (
+                ROOT
+                / "ca_results"
+                / season
+                / "base_case"
+                / solver
+                / f"{season}_{solver}_timeseries.h5"
+            )
+            out_path = (
+                ROOT
+                / "ca_results"
+                / season
+                / "base_case"
+                / solver
+                / "temperature_timeseries.json"
+            )
             process_season(h5_path, uid_map, out_path)
 
         # Backward-compatible legacy layout support.

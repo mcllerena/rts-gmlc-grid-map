@@ -1,27 +1,37 @@
 (() => {
   const config = window.RTS_MAP_CONFIG || {};
   const geojsonBasePath = config.geojsonBasePath || "./gis";
-  const fallbackCenter = Array.isArray(config.initialCenter) ? config.initialCenter : [39.5, -98.35];
-  const fallbackZoom = Number.isFinite(config.initialZoom) ? config.initialZoom : 6;
+  const fallbackCenter = Array.isArray(config.initialCenter)
+    ? config.initialCenter
+    : [39.5, -98.35];
+  const fallbackZoom = Number.isFinite(config.initialZoom)
+    ? config.initialZoom
+    : 6;
 
   const map = L.map("map", {
     zoomControl: true,
     zoomDelta: 0.25,
     zoomSnap: 0.25,
     wheelPxPerZoomLevel: 180,
-    wheelDebounceTime: 70
+    wheelDebounceTime: 70,
   }).setView(fallbackCenter, fallbackZoom);
 
-  const lightTiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: "&copy; OpenStreetMap contributors"
-  });
+  const lightTiles = L.tileLayer(
+    "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors",
+    },
+  );
 
-  const darkTiles = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-    subdomains: "abcd",
-    maxZoom: 19,
-    attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
-  });
+  const darkTiles = L.tileLayer(
+    "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    {
+      subdomains: "abcd",
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+    },
+  );
 
   let activeBaseLayer = null;
   let activeTileErrorCount = 0;
@@ -98,8 +108,8 @@
   // ── Simulation (annual conductor temperature animation) ────────────────
   let simulationControlContainer = null;
   let selectedSimulationSeason = "summer";
-  let simulationTempByUid = {};       // uid -> current frame's °C
-  let simulationRFactorByUid = {};    // uid -> current frame's R multiplier
+  let simulationTempByUid = {}; // uid -> current frame's °C
+  let simulationRFactorByUid = {}; // uid -> current frame's R multiplier
   let simulationFrameIndex = 0;
   let simulationIsRunning = false;
   let simulationFrameId = 0;
@@ -110,8 +120,8 @@
   let simulationFrameSlider = null;
   let simulationPlayPauseButton = null;
   let simulationFrameLabelElement = null;
-  let simulationScope = "year";       // "year" | "month"
-  let simulationSelectedMonth = 0;    // 0 = January … 11 = December
+  let simulationScope = "year"; // "year" | "month"
+  let simulationSelectedMonth = 0; // 0 = January … 11 = December
   let simulationMonthSelect = null;
   let simulationMonthLabel = null;
 
@@ -127,14 +137,14 @@
     color: "#4f81bd",
     weight: 2,
     opacity: 0.75,
-    dashArray: ""
+    dashArray: "",
   };
 
   const contingencyLineStyle = {
     color: "#fffb00",
     weight: 4,
     opacity: 1,
-    dashArray: "8 6"
+    dashArray: "8 6",
   };
 
   const setBaseLayer = (layer) => {
@@ -173,21 +183,21 @@
   bindTileWarnings(darkTiles);
 
   const areaLightFillColor = {
-    "1": "#fbbf24",
-    "2": "#60a5fa",
-    "3": "#34d399"
+    1: "#fbbf24",
+    2: "#60a5fa",
+    3: "#34d399",
   };
 
   const areaLightStrokeColor = {
-    "1": "#92400e",
-    "2": "#1d4ed8",
-    "3": "#047857"
+    1: "#92400e",
+    2: "#1d4ed8",
+    3: "#047857",
   };
 
   const areaDarkFillColor = {
-    "1": "#fde68a",
-    "2": "#bfdbfe",
-    "3": "#bbf7d0"
+    1: "#fde68a",
+    2: "#bfdbfe",
+    3: "#bbf7d0",
   };
 
   const areaStyleForTheme = (area, dark) => {
@@ -199,7 +209,7 @@
         opacity: 0.65,
         fillColor: c,
         fillOpacity: 0.2,
-        interactive: false
+        interactive: false,
       };
     }
 
@@ -209,7 +219,7 @@
       opacity: 0.9,
       fillColor: areaLightFillColor[area] || "#9ca3af",
       fillOpacity: 0.32,
-      interactive: false
+      interactive: false,
     };
   };
 
@@ -224,7 +234,9 @@
 
     if (areasLayer) {
       areasLayer.eachLayer((layer) => {
-        const area = String(layer.options && layer.options.areaId ? layer.options.areaId : "");
+        const area = String(
+          layer.options && layer.options.areaId ? layer.options.areaId : "",
+        );
         layer.setStyle(areaStyleForTheme(area, dark));
       });
     }
@@ -258,18 +270,19 @@
       });
 
       return container;
-    }
+    },
   });
 
   map.addControl(new ThemeToggleControl());
   setTheme("light");
 
-  const esc = (value) => String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+  const esc = (value) =>
+    String(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
 
   const formatFloatValue = (value) => {
     const numeric = Number(value);
@@ -289,7 +302,9 @@
     }
 
     const rows = entries
-      .map(([key, value]) => `<b>${esc(key)}:</b> ${esc(formatFloatValue(value))}`)
+      .map(
+        ([key, value]) => `<b>${esc(key)}:</b> ${esc(formatFloatValue(value))}`,
+      )
       .join("<br>");
 
     return `<b>${esc(title)}</b><br>${rows}`;
@@ -314,7 +329,7 @@
     "Inertia MJ/MW",
     "Base MVA",
     "Transformer X p.u.",
-    "Unit X p.u."
+    "Unit X p.u.",
   ];
 
   const generatorPropertiesToPopupHtml = (props) => {
@@ -347,7 +362,7 @@
       `<b>Min Active Power:</b> ${esc(`${formatGenPowerValue(row["PgMin(MW)"])} MW`)}`,
       `<b>Max Reactive Power:</b> ${esc(`${formatGenPowerValue(row["QgMax(MVAr)"])} MVAr`)}`,
       `<b>Min Reactive Power:</b> ${esc(`${formatGenPowerValue(row["QgMin(MVAr)"])} MVAr`)}`,
-      `<b>Violation:</b> ${esc(formatFloatValue(row.Violation))}`
+      `<b>Violation:</b> ${esc(formatFloatValue(row.Violation))}`,
     ];
     return `<b>Generator</b><br>${lines.join("<br>")}`;
   };
@@ -369,7 +384,7 @@
       closeButton: true,
       autoClose: false,
       closeOnClick: false,
-      autoPan: false
+      autoPan: false,
     });
 
     const getHtml = () => {
@@ -424,12 +439,20 @@
     if (!Number.isFinite(p) || !Number.isFinite(rate) || rate <= 0) {
       return null;
     }
-    return colorForMetricValue(p / rate * 100, 0, 150, "loading");
+    return colorForMetricValue((p / rate) * 100, 0, 150, "loading");
   };
 
   const lineStyleForFeature = (feature) => {
-    const uid = String((feature && feature.properties && feature.properties.UID) || "");
-    if (currentViewMode === "contingency" && activeContingencyConverged && (activeLineMetric === "loading" || activeLineMetric === "lineFlow" || activeLineMetric === "tempCond")) {
+    const uid = String(
+      (feature && feature.properties && feature.properties.UID) || "",
+    );
+    if (
+      currentViewMode === "contingency" &&
+      activeContingencyConverged &&
+      (activeLineMetric === "loading" ||
+        activeLineMetric === "lineFlow" ||
+        activeLineMetric === "tempCond")
+    ) {
       const value = getMetricValueForUid(uid, activeLineMetric);
       if (Number.isFinite(value)) {
         let color;
@@ -444,12 +467,17 @@
           color,
           weight: 3.2,
           opacity: 0.95,
-          dashArray: ""
+          dashArray: "",
         };
       }
     }
 
-    if (currentViewMode === "baseCase" && (activeBaseCaseLineMetric === "loading" || activeBaseCaseLineMetric === "lineFlow" || activeBaseCaseLineMetric === "tempCond")) {
+    if (
+      currentViewMode === "baseCase" &&
+      (activeBaseCaseLineMetric === "loading" ||
+        activeBaseCaseLineMetric === "lineFlow" ||
+        activeBaseCaseLineMetric === "tempCond")
+    ) {
       const row = baseCaseFlowRowsByUid[uid];
       const value = getMetricValueForRow(row, activeBaseCaseLineMetric);
       if (Number.isFinite(value)) {
@@ -468,17 +496,24 @@
             max = 125;
           } else {
             const sourceRows = Object.values(baseCaseFlowRowsByUid);
-            const values = sourceRows.map((r) => getMetricValueForRow(r, activeBaseCaseLineMetric)).filter((v) => Number.isFinite(v));
+            const values = sourceRows
+              .map((r) => getMetricValueForRow(r, activeBaseCaseLineMetric))
+              .filter((v) => Number.isFinite(v));
             min = values.length ? Math.floor(Math.min(...values)) : 0;
             max = values.length ? Math.ceil(Math.max(...values)) : 1;
           }
-          color = colorForMetricValue(value, min, max, activeBaseCaseLineMetric);
+          color = colorForMetricValue(
+            value,
+            min,
+            max,
+            activeBaseCaseLineMetric,
+          );
         }
         return {
           color,
           weight: 3.2,
           opacity: 0.95,
-          dashArray: ""
+          dashArray: "",
         };
       }
     }
@@ -490,7 +525,7 @@
           color: colorForMetricValue(value, 25, 125, "tempCond"),
           weight: 3.2,
           opacity: 0.95,
-          dashArray: ""
+          dashArray: "",
         };
       }
       return defaultLineStyle;
@@ -521,7 +556,9 @@
   };
 
   const isViolationTrue = (value) =>
-    String(value || "").trim().toLowerCase() === "true";
+    String(value || "")
+      .trim()
+      .toLowerCase() === "true";
 
   // Counts violations across line, bus, and generator results for the
   // currently active contingency.
@@ -549,11 +586,12 @@
       violationGlowLayer.clearLayers();
     }
 
-    const shouldShow = isViolationGlowActive
-      && currentViewMode === "contingency"
-      && selectedContingencyUid
-      && activeContingencyConverged
-      && linesLayer;
+    const shouldShow =
+      isViolationGlowActive &&
+      currentViewMode === "contingency" &&
+      selectedContingencyUid &&
+      activeContingencyConverged &&
+      linesLayer;
 
     if (!shouldShow) {
       if (violationGlowLayer && map.hasLayer(violationGlowLayer)) {
@@ -571,7 +609,7 @@
       if (!layer || !layer.feature || !layer.getLatLngs) {
         return;
       }
-      const uid = String(((layer.feature.properties) || {}).UID || "");
+      const uid = String((layer.feature.properties || {}).UID || "");
       const row = activeFlowRowsByUid[uid];
       if (!row || !isViolationTrue(row.Violation)) {
         return;
@@ -587,7 +625,7 @@
         lineCap: "round",
         lineJoin: "round",
         interactive: false,
-        className: "violation-glow"
+        className: "violation-glow",
       });
       violationGlowLayer.addLayer(halo);
     });
@@ -598,7 +636,9 @@
         if (!layer || !layer.feature || !layer.getLatLng) {
           return;
         }
-        const busId = normalizeBusValue(((layer.feature.properties) || {})["Bus ID"]);
+        const busId = normalizeBusValue(
+          (layer.feature.properties || {})["Bus ID"],
+        );
         if (!busId) {
           return;
         }
@@ -613,7 +653,7 @@
           fillColor: "#facc15",
           fillOpacity: 0.55,
           interactive: false,
-          className: "violation-glow"
+          className: "violation-glow",
         });
         violationGlowLayer.addLayer(halo);
       });
@@ -627,11 +667,14 @@
         }
         const props = (layer.feature && layer.feature.properties) || {};
         const busId = normalizeBusValue(props["Bus ID"]);
-        const machineId = normalizeMachineValue(props["Gen ID"] ?? props.MachineID);
+        const machineId = normalizeMachineValue(
+          props["Gen ID"] ?? props.MachineID,
+        );
         if (!busId || !machineId) {
           return;
         }
-        const row = activeGenRowsByBusAndMachine[genBusMachineKey(busId, machineId)];
+        const row =
+          activeGenRowsByBusAndMachine[genBusMachineKey(busId, machineId)];
         if (!row || !isViolationTrue(row.Violation)) {
           return;
         }
@@ -642,7 +685,7 @@
           fillColor: "#facc15",
           fillOpacity: 0.55,
           interactive: false,
-          className: "violation-glow"
+          className: "violation-glow",
         });
         violationGlowLayer.addLayer(halo);
       });
@@ -735,7 +778,7 @@
 
   const flowArrowVisualByZoom = () => {
     const z = Number(map.getZoom()) || 6;
-    const size = Math.max(14, Math.min(34, Math.round(14 + ((z - 6) * 2.2))));
+    const size = Math.max(14, Math.min(34, Math.round(14 + (z - 6) * 2.2)));
     return { size };
   };
 
@@ -746,7 +789,7 @@
     if (latlngs.length === 1 || total <= 0) {
       return {
         latlng: latlngs[0],
-        bearingDeg: 0
+        bearingDeg: 0,
       };
     }
 
@@ -764,7 +807,8 @@
     const a = latlngs[segmentIndex];
     const b = latlngs[Math.min(segmentIndex + 1, latlngs.length - 1)];
     const segStart = cumulative[segmentIndex];
-    const segEnd = cumulative[Math.min(segmentIndex + 1, cumulative.length - 1)];
+    const segEnd =
+      cumulative[Math.min(segmentIndex + 1, cumulative.length - 1)];
     const segLen = Math.max(0.0001, segEnd - segStart);
     const t = Math.max(0, Math.min(1, (target - segStart) / segLen));
 
@@ -777,13 +821,17 @@
 
     return {
       latlng: L.latLng(lat, lng),
-      bearingDeg
+      bearingDeg,
     };
   };
 
   const clearFlowAnimationActors = () => {
     flowAnimationActors.forEach((actor) => {
-      if (actor.marker && flowAnimationLayer && flowAnimationLayer.hasLayer(actor.marker)) {
+      if (
+        actor.marker &&
+        flowAnimationLayer &&
+        flowAnimationLayer.hasLayer(actor.marker)
+      ) {
         flowAnimationLayer.removeLayer(actor.marker);
       }
     });
@@ -804,7 +852,11 @@
     }
 
     if (currentViewMode === "contingency") {
-      return !!selectedContingencyUid && activeContingencyConverged && Object.keys(activeBusRowsByBusId).length > 0;
+      return (
+        !!selectedContingencyUid &&
+        activeContingencyConverged &&
+        Object.keys(activeBusRowsByBusId).length > 0
+      );
     }
 
     return false;
@@ -828,7 +880,11 @@
       const uid = String(props.UID || "").trim();
 
       // In contingency mode, the selected contingency line is outaged/disconnected.
-      if (currentViewMode === "contingency" && selectedContingencyUid && uid === selectedContingencyUid) {
+      if (
+        currentViewMode === "contingency" &&
+        selectedContingencyUid &&
+        uid === selectedContingencyUid
+      ) {
         return;
       }
 
@@ -851,7 +907,8 @@
       }
 
       // Real-power direction is from higher phase angle bus to lower phase angle bus.
-      const directedPath = fromAngle > toAngle ? basePath.slice() : basePath.slice().reverse();
+      const directedPath =
+        fromAngle > toAngle ? basePath.slice() : basePath.slice().reverse();
       const { cumulative, total } = buildPathMetrics(directedPath);
       if (!Number.isFinite(total) || total < 20) {
         return;
@@ -860,11 +917,12 @@
       const row = getActiveLineRowByUidForFlow(uid);
       const absMw = Math.abs(Number(row && row["Pij(MW)"]));
       const speed = Number.isFinite(absMw)
-        ? Math.min(1.15, 0.22 + (absMw / 1400))
+        ? Math.min(1.15, 0.22 + absMw / 1400)
         : 0.28;
-      const arrowColor = (lineLayer && lineLayer.options && lineLayer.options.color)
-        || (lineStyleForFeature(feature) || {}).color
-        || "#06b6d4";
+      const arrowColor =
+        (lineLayer && lineLayer.options && lineLayer.options.color) ||
+        (lineStyleForFeature(feature) || {}).color ||
+        "#06b6d4";
 
       const { size: arrowSize } = flowArrowVisualByZoom();
 
@@ -872,12 +930,15 @@
         className: "flow-arrow-marker",
         html: `<span class="flow-arrow-glyph" style="width:${arrowSize}px;height:${arrowSize}px;font-size:${arrowSize}px;line-height:${arrowSize}px;color:${arrowColor};">&gt;</span>`,
         iconSize: [arrowSize, arrowSize],
-        iconAnchor: [Math.round(arrowSize / 2), Math.round(arrowSize / 2)]
+        iconAnchor: [Math.round(arrowSize / 2), Math.round(arrowSize / 2)],
       });
 
       // Place multiple arrows on each line so the flow direction is visible everywhere.
       const pixelLength = buildPathPixelLength(directedPath);
-      const markerCount = Math.max(2, Math.min(20, Math.floor(pixelLength / 120) + 1));
+      const markerCount = Math.max(
+        2,
+        Math.min(20, Math.floor(pixelLength / 120) + 1),
+      );
       const seed = (hashString(uid) % 1000) / 1000;
 
       for (let i = 0; i < markerCount; i += 1) {
@@ -885,10 +946,10 @@
           icon,
           interactive: false,
           keyboard: false,
-          pane: "markerPane"
+          pane: "markerPane",
         }).addTo(flowAnimationLayer);
 
-        const seededProgress = (seed + (i / markerCount)) % 1;
+        const seededProgress = (seed + i / markerCount) % 1;
 
         flowAnimationActors.push({
           marker,
@@ -897,7 +958,7 @@
           total,
           progress: seededProgress,
           speed,
-          glyphEl: null
+          glyphEl: null,
         });
       }
     });
@@ -918,12 +979,20 @@
       flowAnimationLastFrameTs = timestamp;
     }
 
-    const dt = Math.min(0.16, Math.max(0, (timestamp - flowAnimationLastFrameTs) / 1000));
+    const dt = Math.min(
+      0.16,
+      Math.max(0, (timestamp - flowAnimationLastFrameTs) / 1000),
+    );
     flowAnimationLastFrameTs = timestamp;
 
     flowAnimationActors.forEach((actor) => {
-      actor.progress = (actor.progress + (actor.speed * dt)) % 1;
-      const sample = interpolateOnPath(actor.directedPath, actor.cumulative, actor.total, actor.progress);
+      actor.progress = (actor.progress + actor.speed * dt) % 1;
+      const sample = interpolateOnPath(
+        actor.directedPath,
+        actor.cumulative,
+        actor.total,
+        actor.progress,
+      );
       if (!sample) {
         return;
       }
@@ -932,7 +1001,9 @@
 
       if (!actor.glyphEl) {
         const markerEl = actor.marker.getElement();
-        actor.glyphEl = markerEl ? markerEl.querySelector(".flow-arrow-glyph") : null;
+        actor.glyphEl = markerEl
+          ? markerEl.querySelector(".flow-arrow-glyph")
+          : null;
       }
 
       if (actor.glyphEl) {
@@ -977,7 +1048,8 @@
   };
 
   const refreshFlowAnimationControlState = () => {
-    const showControl = currentViewMode === "baseCase" || currentViewMode === "contingency";
+    const showControl =
+      currentViewMode === "baseCase" || currentViewMode === "contingency";
 
     if (!showControl) {
       if (isFlowAnimationActive) {
@@ -1022,9 +1094,11 @@
     return btn;
   };
 
-  const busIconHtml = (color) => `<div style="width:12px;height:12px;background:${color};border:1px solid ${color};box-sizing:border-box;position:relative;overflow:hidden;"><span style="position:absolute;left:-2px;top:5px;width:16px;height:1.4px;background:#111;transform:rotate(45deg);transform-origin:center;"></span></div>`;
+  const busIconHtml = (color) =>
+    `<div style="width:12px;height:12px;background:${color};border:1px solid ${color};box-sizing:border-box;position:relative;overflow:hidden;"><span style="position:absolute;left:-2px;top:5px;width:16px;height:1.4px;background:#111;transform:rotate(45deg);transform-origin:center;"></span></div>`;
 
-  const busIdFromFeature = (feature) => normalizeBusValue(((feature && feature.properties) || {})["Bus ID"]);
+  const busIdFromFeature = (feature) =>
+    normalizeBusValue(((feature && feature.properties) || {})["Bus ID"]);
 
   const refreshBusColors = () => {
     if (!busesLayer) {
@@ -1036,13 +1110,25 @@
     busesLayer.eachLayer((layer) => {
       const feature = layer && layer.feature;
       const busId = busIdFromFeature(feature);
-      const baseColor = layer.options && layer.options.baseBusColor ? layer.options.baseBusColor : "#000000";
+      const baseColor =
+        layer.options && layer.options.baseBusColor
+          ? layer.options.baseBusColor
+          : "#000000";
 
       let color = baseColor;
-      if (currentViewMode === "contingency" && activeContingencyConverged && isBusVoltageMetricActive) {
+      if (
+        currentViewMode === "contingency" &&
+        activeContingencyConverged &&
+        isBusVoltageMetricActive
+      ) {
         const value = getMetricValueForBusId(busId, "busVoltage");
         if (Number.isFinite(value)) {
-          color = colorForMetricValue(value, voltageRange.min, voltageRange.max, "busVoltage");
+          color = colorForMetricValue(
+            value,
+            voltageRange.min,
+            voltageRange.max,
+            "busVoltage",
+          );
         }
       }
 
@@ -1050,7 +1136,9 @@
         const row = baseCaseBusRowsByBusId[busId];
         const value = row ? Number(row["Volt(pu)"]) : Number.NaN;
         if (Number.isFinite(value)) {
-          const bcValues = Object.values(baseCaseBusRowsByBusId).map((r) => Number(r["Volt(pu)"])).filter((v) => Number.isFinite(v));
+          const bcValues = Object.values(baseCaseBusRowsByBusId)
+            .map((r) => Number(r["Volt(pu)"]))
+            .filter((v) => Number.isFinite(v));
           const bcMin = bcValues.length ? Math.min(...bcValues) : 0;
           const bcMax = bcValues.length ? Math.max(...bcValues) : 1;
           color = colorForMetricValue(value, bcMin, bcMax, "busVoltage");
@@ -1058,12 +1146,14 @@
       }
 
       if (layer && layer.setIcon) {
-        layer.setIcon(L.divIcon({
-          className: "bus-square-icon",
-          html: busIconHtml(color),
-          iconSize: [12, 12],
-          iconAnchor: [6, 6]
-        }));
+        layer.setIcon(
+          L.divIcon({
+            className: "bus-square-icon",
+            html: busIconHtml(color),
+            iconSize: [12, 12],
+            iconAnchor: [6, 6],
+          }),
+        );
       }
     });
   };
@@ -1100,9 +1190,11 @@
     return Number.NaN;
   };
 
-  const getMetricValueForUid = (uid, metric) => getMetricValueForRow(activeFlowRowsByUid[uid], metric);
+  const getMetricValueForUid = (uid, metric) =>
+    getMetricValueForRow(activeFlowRowsByUid[uid], metric);
 
-  const getMetricValueForBusId = (busId, metric) => getMetricValueForRow(activeBusRowsByBusId[busId], metric);
+  const getMetricValueForBusId = (busId, metric) =>
+    getMetricValueForRow(activeBusRowsByBusId[busId], metric);
 
   const getMetricRange = (metric) => {
     // Loading and lineFlow always use a fixed 0–150 % scale
@@ -1135,7 +1227,7 @@
       const maxRaw = Math.max(...values);
       return {
         min: minRaw,
-        max: maxRaw
+        max: maxRaw,
       };
     }
 
@@ -1147,13 +1239,13 @@
     if (minRounded === maxRounded) {
       return {
         min: minRounded,
-        max: maxRounded + 1
+        max: maxRounded + 1,
       };
     }
 
     return {
       min: minRounded,
-      max: maxRounded
+      max: maxRounded,
     };
   };
 
@@ -1161,24 +1253,24 @@
   // Voltage stops are anchored as if VMIN=0.90, VMID=1.00, VMAX=1.10 (Julia
   // DEFAULT_VOLTAGE_MAP_RANGE).  Loading stops are anchored at 0/60/80/100/150 %.
   const VOLTAGE_COLOR_STOPS = [
-    [0.00, [  0,  50, 200]],   // 0.90 pu — deep blue
-    [0.15, [ 30, 160, 255]],   // 0.93 pu — sky blue
-    [0.35, [  0, 210, 200]],   // 0.97 pu — cyan/teal
-    [0.50, [ 40, 200,  60]],   // 1.00 pu — green (nominal)
-    [0.65, [160, 210,   0]],   // 1.03 pu — yellow-green
-    [0.85, [255, 160,   0]],   // 1.07 pu — orange
-    [1.00, [210,   0,   0]]    // 1.10 pu — red
+    [0.0, [0, 50, 200]], // 0.90 pu — deep blue
+    [0.15, [30, 160, 255]], // 0.93 pu — sky blue
+    [0.35, [0, 210, 200]], // 0.97 pu — cyan/teal
+    [0.5, [40, 200, 60]], // 1.00 pu — green (nominal)
+    [0.65, [160, 210, 0]], // 1.03 pu — yellow-green
+    [0.85, [255, 160, 0]], // 1.07 pu — orange
+    [1.0, [210, 0, 0]], // 1.10 pu — red
   ];
   const LOADING_COLOR_STOPS = [
-    [0.0000, [ 30,  80, 200]], //   0 % — blue
-    [0.2000, [  0, 170, 220]], //  30 % — cyan
-    [0.3333, [  0, 180,  60]], //  50 % — green
-    [0.4667, [180, 210,   0]], //  70 % — yellow-green
-    [0.5667, [255, 220,   0]], //  85 % — yellow
-    [0.6333, [255, 165,   0]], //  95 % — orange
-    [0.7000, [240,  90,   0]], // 105 % — red-orange
-    [0.8000, [210,   0,   0]], // 120 % — red
-    [1.0000, [120,   0,   0]]  // 150 % — dark red
+    [0.0, [30, 80, 200]], //   0 % — blue
+    [0.2, [0, 170, 220]], //  30 % — cyan
+    [0.3333, [0, 180, 60]], //  50 % — green
+    [0.4667, [180, 210, 0]], //  70 % — yellow-green
+    [0.5667, [255, 220, 0]], //  85 % — yellow
+    [0.6333, [255, 165, 0]], //  95 % — orange
+    [0.7, [240, 90, 0]], // 105 % — red-orange
+    [0.8, [210, 0, 0]], // 120 % — red
+    [1.0, [120, 0, 0]], // 150 % — dark red
   ];
 
   const interpolateColorStops = (t, stops) => {
@@ -1211,7 +1303,12 @@
 
   const colorForMetricValue = (value, min, max, metric) => {
     let t = 0;
-    if (Number.isFinite(value) && Number.isFinite(min) && Number.isFinite(max) && max !== min) {
+    if (
+      Number.isFinite(value) &&
+      Number.isFinite(min) &&
+      Number.isFinite(max) &&
+      max !== min
+    ) {
       t = (value - min) / (max - min);
       t = Math.max(0, Math.min(1, t));
     }
@@ -1226,9 +1323,13 @@
     return String(value ?? "").trim();
   };
 
-  const normalizeMachineValue = (value) => String(value ?? "").trim().toUpperCase();
+  const normalizeMachineValue = (value) =>
+    String(value ?? "")
+      .trim()
+      .toUpperCase();
 
-  const normalizeMachineLoose = (value) => normalizeMachineValue(value).replace(/^0+/, "");
+  const normalizeMachineLoose = (value) =>
+    normalizeMachineValue(value).replace(/^0+/, "");
 
   const machineNumeric = (value) => {
     const text = normalizeMachineValue(value);
@@ -1239,13 +1340,25 @@
     return Number(match[0]);
   };
 
-  const genBusMachineKey = (busId, machineId) => `${normalizeBusValue(busId)}|${normalizeMachineValue(machineId)}`;
+  const genBusMachineKey = (busId, machineId) =>
+    `${normalizeBusValue(busId)}|${normalizeMachineValue(machineId)}`;
 
-  const normalizeCktValue = (value) => String(value ?? "").trim().toUpperCase();
+  const normalizeCktValue = (value) =>
+    String(value ?? "")
+      .trim()
+      .toUpperCase();
 
-  const normalizeSolver = (solver) => (String(solver || "").trim().toLowerCase() === "inlf" ? "inlf" : "fnsl");
+  const normalizeSolver = (solver) =>
+    String(solver || "")
+      .trim()
+      .toLowerCase() === "inlf"
+      ? "inlf"
+      : "fnsl";
 
-  const scenarioCacheKey = (season, solver) => `${String(season || "").trim().toLowerCase()}|${normalizeSolver(solver)}`;
+  const scenarioCacheKey = (season, solver) =>
+    `${String(season || "")
+      .trim()
+      .toLowerCase()}|${normalizeSolver(solver)}`;
 
   const cktCandidatesFromUid = (uid) => {
     const raw = String(uid ?? "").trim();
@@ -1261,7 +1374,13 @@
       candidates.push(raw.replace(/^[A-Za-z]+/, ""));
     }
 
-    return Array.from(new Set(candidates.map((value) => normalizeCktValue(value)).filter((value) => value.length > 0)));
+    return Array.from(
+      new Set(
+        candidates
+          .map((value) => normalizeCktValue(value))
+          .filter((value) => value.length > 0),
+      ),
+    );
   };
 
   const parseCsvLine = (line) => {
@@ -1292,7 +1411,9 @@
 
   const readLineNamesCsv = async () => {
     try {
-      const response = await fetch(`${geojsonBasePath}/line_names.csv`, { cache: "no-cache" });
+      const response = await fetch(`${geojsonBasePath}/line_names.csv`, {
+        cache: "no-cache",
+      });
       if (!response.ok) {
         return [];
       }
@@ -1312,22 +1433,35 @@
         contingency: header.indexOf("Contingency"),
         fromBus: header.indexOf("FromBus"),
         toBus: header.indexOf("ToBus"),
-        ckt: header.indexOf("CKT")
+        ckt: header.indexOf("CKT"),
       };
 
-      if (colIndex.contingency < 0 || colIndex.fromBus < 0 || colIndex.toBus < 0 || colIndex.ckt < 0) {
+      if (
+        colIndex.contingency < 0 ||
+        colIndex.fromBus < 0 ||
+        colIndex.toBus < 0 ||
+        colIndex.ckt < 0
+      ) {
         return [];
       }
 
-      return lines.slice(1).map((line) => {
-        const cols = parseCsvLine(line);
-        return {
-          contingency: String(cols[colIndex.contingency] || "").trim(),
-          fromBus: normalizeBusValue(cols[colIndex.fromBus]),
-          toBus: normalizeBusValue(cols[colIndex.toBus]),
-          ckt: normalizeCktValue(cols[colIndex.ckt])
-        };
-      }).filter((row) => row.contingency.length > 0 && row.fromBus.length > 0 && row.toBus.length > 0);
+      return lines
+        .slice(1)
+        .map((line) => {
+          const cols = parseCsvLine(line);
+          return {
+            contingency: String(cols[colIndex.contingency] || "").trim(),
+            fromBus: normalizeBusValue(cols[colIndex.fromBus]),
+            toBus: normalizeBusValue(cols[colIndex.toBus]),
+            ckt: normalizeCktValue(cols[colIndex.ckt]),
+          };
+        })
+        .filter(
+          (row) =>
+            row.contingency.length > 0 &&
+            row.fromBus.length > 0 &&
+            row.toBus.length > 0,
+        );
     } catch (_error) {
       return [];
     }
@@ -1399,13 +1533,18 @@
       out[uid] = {
         fromBus: normalizeBusValue(props["From Bus"]),
         toBus: normalizeBusValue(props["To Bus"]),
-        cktCandidates: cktCandidatesFromUid(uid)
+        cktCandidates: cktCandidatesFromUid(uid),
       };
     });
     return out;
   };
 
-  const getCasePathCandidates = (season, caseFolder, fileName, solver = "fnsl") => {
+  const getCasePathCandidates = (
+    season,
+    caseFolder,
+    fileName,
+    solver = "fnsl",
+  ) => {
     if (!season || !caseFolder || !fileName) {
       return [];
     }
@@ -1413,12 +1552,12 @@
     const secondary = preferred === "fnsl" ? "inlf" : "fnsl";
     return [
       `./ca_results/${season}/${caseFolder}/${preferred}/${fileName}`,
-      `./ca_results/${season}/${caseFolder}/${secondary}/${fileName}`
+      `./ca_results/${season}/${caseFolder}/${secondary}/${fileName}`,
     ];
   };
 
   const fetchFirstAvailableText = async (paths) => {
-    for (const path of (paths || [])) {
+    for (const path of paths || []) {
       try {
         const response = await fetch(path, { cache: "no-cache" });
         if (response.ok) {
@@ -1432,13 +1571,13 @@
   };
 
   const fetchFirstAvailable = async (paths) => {
-    for (const path of (paths || [])) {
+    for (const path of paths || []) {
       try {
         const response = await fetch(path, { cache: "no-cache" });
         if (response.ok) {
           return {
             path,
-            text: await response.text()
+            text: await response.text(),
           };
         }
       } catch (_error) {
@@ -1487,14 +1626,20 @@
   };
 
   const getSeasonLineCsvPathCandidates = (season, solver) => {
-    const legacyFile = season === "summer"
-      ? "rts_gmlc_export_13_40_summer_v35_N1_lines.csv"
-      : "rts_gmlc_export_10_43_winter_v35_N1_lines.csv";
+    const legacyFile =
+      season === "summer"
+        ? "rts_gmlc_export_13_40_summer_v35_N1_lines.csv"
+        : "rts_gmlc_export_10_43_winter_v35_N1_lines.csv";
 
     return [
-      ...getCasePathCandidates(season, "N-1", "N1_lines_with_realweather_T.csv", solver),
+      ...getCasePathCandidates(
+        season,
+        "N-1",
+        "N1_lines_with_realweather_T.csv",
+        solver,
+      ),
       ...getCasePathCandidates(season, "N-1", legacyFile, solver),
-      `./ca_results/${season}/${legacyFile}`
+      `./ca_results/${season}/${legacyFile}`,
     ];
   };
 
@@ -1509,7 +1654,9 @@
       return caRowsCacheBySeason.get(cacheKey);
     }
 
-    const text = await fetchFirstAvailableText(getSeasonLineCsvPathCandidates(season, solver));
+    const text = await fetchFirstAvailableText(
+      getSeasonLineCsvPathCandidates(season, solver),
+    );
 
     if (!text) {
       caRowsCacheBySeason.set(cacheKey, []);
@@ -1532,7 +1679,12 @@
     const toBusIndex = header.indexOf("ToBus#");
     const cktIndex = header.indexOf("CKT");
 
-    if (contingencyIndex < 0 || fromBusIndex < 0 || toBusIndex < 0 || cktIndex < 0) {
+    if (
+      contingencyIndex < 0 ||
+      fromBusIndex < 0 ||
+      toBusIndex < 0 ||
+      cktIndex < 0
+    ) {
       caRowsCacheBySeason.set(cacheKey, []);
       return [];
     }
@@ -1563,21 +1715,29 @@
           }
         });
       }
-    } catch (_e) { /* leave rows untouched */ }
+    } catch (_e) {
+      /* leave rows untouched */
+    }
 
     caRowsCacheBySeason.set(cacheKey, rows);
     return rows;
   };
 
   const getSeasonBusCsvPathCandidates = (season, solver) => {
-    const legacyFile = season === "summer"
-      ? "rts_gmlc_export_13_40_summer_v35_N1_buses.csv"
-      : "rts_gmlc_export_10_43_winter_v35_N1_buses.csv";
+    const legacyFile =
+      season === "summer"
+        ? "rts_gmlc_export_13_40_summer_v35_N1_buses.csv"
+        : "rts_gmlc_export_10_43_winter_v35_N1_buses.csv";
 
     return [
-      ...getCasePathCandidates(season, "N-1", "N1_lines_with_realweather_T.csv", solver),
+      ...getCasePathCandidates(
+        season,
+        "N-1",
+        "N1_lines_with_realweather_T.csv",
+        solver,
+      ),
       ...getCasePathCandidates(season, "N-1", legacyFile, solver),
-      `./ca_results/${season}/${legacyFile}`
+      `./ca_results/${season}/${legacyFile}`,
     ];
   };
 
@@ -1592,7 +1752,9 @@
       return caBusRowsCacheBySeason.get(cacheKey);
     }
 
-    const text = await fetchFirstAvailableText(getSeasonBusCsvPathCandidates(season, solver));
+    const text = await fetchFirstAvailableText(
+      getSeasonBusCsvPathCandidates(season, solver),
+    );
 
     if (!text) {
       caBusRowsCacheBySeason.set(cacheKey, []);
@@ -1650,14 +1812,20 @@
   };
 
   const getSeasonGenCsvPathCandidates = (season, solver) => {
-    const legacyFile = season === "summer"
-      ? "rts_gmlc_export_13_40_summer_v35_N1_gens.csv"
-      : "rts_gmlc_export_10_43_winter_v35_N1_gens.csv";
+    const legacyFile =
+      season === "summer"
+        ? "rts_gmlc_export_13_40_summer_v35_N1_gens.csv"
+        : "rts_gmlc_export_10_43_winter_v35_N1_gens.csv";
 
     return [
-      ...getCasePathCandidates(season, "N-1", "N1_lines_with_realweather_T.csv", solver),
+      ...getCasePathCandidates(
+        season,
+        "N-1",
+        "N1_lines_with_realweather_T.csv",
+        solver,
+      ),
       ...getCasePathCandidates(season, "N-1", legacyFile, solver),
-      `./ca_results/${season}/${legacyFile}`
+      `./ca_results/${season}/${legacyFile}`,
     ];
   };
 
@@ -1672,7 +1840,9 @@
       return caGenRowsCacheBySeason.get(cacheKey);
     }
 
-    const text = await fetchFirstAvailableText(getSeasonGenCsvPathCandidates(season, solver));
+    const text = await fetchFirstAvailableText(
+      getSeasonGenCsvPathCandidates(season, solver),
+    );
 
     if (!text) {
       caGenRowsCacheBySeason.set(cacheKey, []);
@@ -1702,16 +1872,16 @@
     const violationIndex = header.indexOf("Violation");
 
     if (
-      contingencyIndex < 0
-      || busIndex < 0
-      || machineIndex < 0
-      || pgIndex < 0
-      || qgIndex < 0
-      || pgMaxIndex < 0
-      || pgMinIndex < 0
-      || qgMaxIndex < 0
-      || qgMinIndex < 0
-      || violationIndex < 0
+      contingencyIndex < 0 ||
+      busIndex < 0 ||
+      machineIndex < 0 ||
+      pgIndex < 0 ||
+      qgIndex < 0 ||
+      pgMaxIndex < 0 ||
+      pgMinIndex < 0 ||
+      qgMaxIndex < 0 ||
+      qgMinIndex < 0 ||
+      violationIndex < 0
     ) {
       caGenRowsCacheBySeason.set(cacheKey, []);
       return [];
@@ -1730,7 +1900,7 @@
         Violation: String(cols[violationIndex] || "").trim(),
         __contingency: String(cols[contingencyIndex] || "").trim(),
         __busId: normalizeBusValue(cols[busIndex]),
-        __machineId: normalizeMachineValue(cols[machineIndex])
+        __machineId: normalizeMachineValue(cols[machineIndex]),
       };
       return row;
     });
@@ -1753,7 +1923,7 @@
         if (!byBus[busId]) {
           byBus[busId] = {
             "Pg(MW)": 0,
-            "Qg(MVAr)": 0
+            "Qg(MVAr)": 0,
           };
         }
 
@@ -1778,7 +1948,8 @@
       .filter((row) => row.__contingency === contingencyName)
       .forEach((row) => {
         const busId = row.__busId;
-        const machineId = row.__machineId || normalizeMachineValue(row.MachineID);
+        const machineId =
+          row.__machineId || normalizeMachineValue(row.MachineID);
         if (!busId || !machineId) {
           return;
         }
@@ -1810,7 +1981,9 @@
   };
 
   const buildActiveFlowRowsByUid = (rows, contingencyName, branchMetaByUid) => {
-    const filtered = rows.filter((row) => row.__contingency === contingencyName);
+    const filtered = rows.filter(
+      (row) => row.__contingency === contingencyName,
+    );
 
     const byPair = new Map();
     const byPairAndCkt = new Map();
@@ -1837,7 +2010,7 @@
       const pair = `${meta.fromBus}|${meta.toBus}`;
 
       let row = null;
-      for (const ckt of (meta.cktCandidates || [])) {
+      for (const ckt of meta.cktCandidates || []) {
         const match = byPairAndCkt.get(`${pair}|${ckt}`);
         if (match) {
           row = match;
@@ -1860,26 +2033,33 @@
   // ---- Base Case CSV readers ----
 
   const getBaseCaseLineCsvPathCandidates = (season, solver) => {
-    const legacyFile = season === "summer"
-      ? "rts_gmlc_export_13_40_summer_v35_base_acpf_lines.csv"
-      : "rts_gmlc_export_10_43_winter_v35_base_acpf_lines.csv";
+    const legacyFile =
+      season === "summer"
+        ? "rts_gmlc_export_13_40_summer_v35_base_acpf_lines.csv"
+        : "rts_gmlc_export_10_43_winter_v35_base_acpf_lines.csv";
 
     return [
-      ...getCasePathCandidates(season, "base_case", "base_lines_with_realweather_T.csv", solver),
+      ...getCasePathCandidates(
+        season,
+        "base_case",
+        "base_lines_with_realweather_T.csv",
+        solver,
+      ),
       ...getCasePathCandidates(season, "base_case", legacyFile, solver),
-      `./ca_results/${season}/${legacyFile}`
+      `./ca_results/${season}/${legacyFile}`,
     ];
   };
 
   const getBaseCaseRawPathCandidates = (season, solver) => {
     const preferred = normalizeSolver(solver);
     const secondary = preferred === "fnsl" ? "inlf" : "fnsl";
-    const prefix = season === "summer"
-      ? "rts_gmlc_export_13_40_summer_v35_Radj_base"
-      : "rts_gmlc_export_10_43_winter_v35_Radj_base";
+    const prefix =
+      season === "summer"
+        ? "rts_gmlc_export_13_40_summer_v35_Radj_base"
+        : "rts_gmlc_export_10_43_winter_v35_Radj_base";
     return [
       `./ca_results/${season}/base_case/${preferred}/${prefix}_${preferred}.raw`,
-      `./ca_results/${season}/base_case/${secondary}/${prefix}_${secondary}.raw`
+      `./ca_results/${season}/base_case/${secondary}/${prefix}_${secondary}.raw`,
     ];
   };
 
@@ -1894,14 +2074,19 @@
       return baseCaseLineRowsCacheBySeason.get(cacheKey);
     }
 
-    const text = await fetchFirstAvailableText(getBaseCaseLineCsvPathCandidates(season, solver));
+    const text = await fetchFirstAvailableText(
+      getBaseCaseLineCsvPathCandidates(season, solver),
+    );
 
     if (!text) {
       baseCaseLineRowsCacheBySeason.set(cacheKey, []);
       return [];
     }
 
-    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+    const lines = text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
     if (!lines.length) {
       baseCaseLineRowsCacheBySeason.set(cacheKey, []);
       return [];
@@ -1928,9 +2113,12 @@
       const pij = String(cols[pijIndex] || "").trim();
       const rateA = String(cols[rateAIndex] || "").trim();
       const sijVal = String(cols[sijIndex] || "").trim();
-      const loadingPct = (Number.isFinite(Number(sijVal)) && Number.isFinite(Number(rateA)) && Number(rateA) !== 0)
-        ? String(Math.abs(Number(sijVal)) / Number(rateA) * 100)
-        : "";
+      const loadingPct =
+        Number.isFinite(Number(sijVal)) &&
+        Number.isFinite(Number(rateA)) &&
+        Number(rateA) !== 0
+          ? String((Math.abs(Number(sijVal)) / Number(rateA)) * 100)
+          : "";
       return {
         "FromBus#": String(cols[fromBusIndex] || "").trim(),
         "ToBus#": String(cols[toBusIndex] || "").trim(),
@@ -1944,7 +2132,7 @@
         "Loading_%": loadingPct,
         __fromBus: normalizeBusValue(cols[fromBusIndex]),
         __toBus: normalizeBusValue(cols[toBusIndex]),
-        __ckt: normalizeCktValue(cols[cktIndex])
+        __ckt: normalizeCktValue(cols[cktIndex]),
       };
     });
 
@@ -1960,7 +2148,9 @@
           }
         });
       }
-    } catch (_e) { /* leave rows untouched */ }
+    } catch (_e) {
+      /* leave rows untouched */
+    }
 
     baseCaseLineRowsCacheBySeason.set(cacheKey, rows);
     return rows;
@@ -1970,17 +2160,27 @@
   // Loaders for the *_with_realweather_T.csv companion files. The temperature
   // column is merged into the existing line rows on demand.
   const TEMP_COND_COLUMN = "Tcond_realweather(degC)";
-  const baseCaseTempBySeason = new Map();   // season|solver -> Map<from|to|ckt, °C>
-  const n1TempBySeason = new Map();         // season|solver -> Map<contingency|from|to|ckt, °C>
+  const baseCaseTempBySeason = new Map(); // season|solver -> Map<from|to|ckt, °C>
+  const n1TempBySeason = new Map(); // season|solver -> Map<contingency|from|to|ckt, °C>
 
   const getBaseCaseTempCsvPathCandidates = (season, solver) => [
-    ...getCasePathCandidates(season, "base_case", "base_lines_with_realweather_T.csv", solver),
-    `./ca_results/${season}/base_lines_with_realweather_T.csv`
+    ...getCasePathCandidates(
+      season,
+      "base_case",
+      "base_lines_with_realweather_T.csv",
+      solver,
+    ),
+    `./ca_results/${season}/base_lines_with_realweather_T.csv`,
   ];
 
   const getN1TempCsvPathCandidates = (season, solver) => [
-    ...getCasePathCandidates(season, "N-1", "N1_lines_with_realweather_T.csv", solver),
-    `./ca_results/${season}/N1_lines_with_realweather_T.csv`
+    ...getCasePathCandidates(
+      season,
+      "N-1",
+      "N1_lines_with_realweather_T.csv",
+      solver,
+    ),
+    `./ca_results/${season}/N1_lines_with_realweather_T.csv`,
   ];
 
   const loadBaseCaseTempMap = async (season, solver = "fnsl") => {
@@ -1989,9 +2189,14 @@
       return baseCaseTempBySeason.get(cacheKey);
     }
     const out = new Map();
-    const text = await fetchFirstAvailableText(getBaseCaseTempCsvPathCandidates(season, solver));
+    const text = await fetchFirstAvailableText(
+      getBaseCaseTempCsvPathCandidates(season, solver),
+    );
     if (text) {
-      const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+      const lines = text
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
       if (lines.length > 1) {
         const header = parseCsvLine(lines[0]);
         const fIdx = header.indexOf("FromBus#");
@@ -2020,9 +2225,14 @@
       return n1TempBySeason.get(cacheKey);
     }
     const out = new Map();
-    const text = await fetchFirstAvailableText(getN1TempCsvPathCandidates(season, solver));
+    const text = await fetchFirstAvailableText(
+      getN1TempCsvPathCandidates(season, solver),
+    );
     if (text) {
-      const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+      const lines = text
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
       if (lines.length > 1) {
         const header = parseCsvLine(lines[0]);
         const contIdx = header.indexOf("Contingency");
@@ -2047,13 +2257,14 @@
   };
 
   const getBaseCaseBusCsvPathCandidates = (season, solver) => {
-    const legacyFile = season === "summer"
-      ? "rts_gmlc_export_13_40_summer_v35_base_acpf_buses.csv"
-      : "rts_gmlc_export_10_43_winter_v35_base_acpf_buses.csv";
+    const legacyFile =
+      season === "summer"
+        ? "rts_gmlc_export_13_40_summer_v35_base_acpf_buses.csv"
+        : "rts_gmlc_export_10_43_winter_v35_base_acpf_buses.csv";
 
     return [
       ...getCasePathCandidates(season, "base_case", legacyFile, solver),
-      `./ca_results/${season}/${legacyFile}`
+      `./ca_results/${season}/${legacyFile}`,
     ];
   };
 
@@ -2070,9 +2281,10 @@
 
     const baseCandidates = [
       ...getBaseCaseRawPathCandidates(season, solver),
-      ...getBaseCaseBusCsvPathCandidates(season, solver)
+      ...getBaseCaseBusCsvPathCandidates(season, solver),
     ];
-    const { path: resolvedPath, text } = await fetchFirstAvailable(baseCandidates);
+    const { path: resolvedPath, text } =
+      await fetchFirstAvailable(baseCandidates);
 
     if (!text) {
       baseCaseBusRowsCacheBySeason.set(cacheKey, []);
@@ -2080,19 +2292,28 @@
     }
 
     if (resolvedPath.endsWith(".raw")) {
-      const rawRows = extractRawSectionRows(text, "BEGIN BUS DATA", "END OF BUS DATA");
-      const rows = rawRows.map((cols) => ({
-        "Bus#": String(cols[0] || "").trim(),
-        Name: String(cols[1] || "").trim(),
-        "Volt(pu)": String(cols[7] || "").trim(),
-        "Angle(deg)": String(cols[8] || "").trim(),
-        __busId: normalizeBusValue(cols[0])
-      })).filter((row) => row.__busId.length > 0);
+      const rawRows = extractRawSectionRows(
+        text,
+        "BEGIN BUS DATA",
+        "END OF BUS DATA",
+      );
+      const rows = rawRows
+        .map((cols) => ({
+          "Bus#": String(cols[0] || "").trim(),
+          Name: String(cols[1] || "").trim(),
+          "Volt(pu)": String(cols[7] || "").trim(),
+          "Angle(deg)": String(cols[8] || "").trim(),
+          __busId: normalizeBusValue(cols[0]),
+        }))
+        .filter((row) => row.__busId.length > 0);
       baseCaseBusRowsCacheBySeason.set(cacheKey, rows);
       return rows;
     }
 
-    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+    const lines = text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
     if (!lines.length) {
       baseCaseBusRowsCacheBySeason.set(cacheKey, []);
       return [];
@@ -2115,8 +2336,9 @@
         "Bus#": String(cols[busIndex] || "").trim(),
         Name: nameIndex >= 0 ? String(cols[nameIndex] || "").trim() : "",
         "Volt(pu)": String(cols[voltPuIndex] || "").trim(),
-        "Angle(deg)": angleIndex >= 0 ? String(cols[angleIndex] || "").trim() : "",
-        __busId: normalizeBusValue(cols[busIndex])
+        "Angle(deg)":
+          angleIndex >= 0 ? String(cols[angleIndex] || "").trim() : "",
+        __busId: normalizeBusValue(cols[busIndex]),
       };
     });
 
@@ -2125,13 +2347,14 @@
   };
 
   const getBaseCaseGenCsvPathCandidates = (season, solver) => {
-    const legacyFile = season === "summer"
-      ? "rts_gmlc_export_13_40_summer_v35_base_acpf_gens.csv"
-      : "rts_gmlc_export_10_43_winter_v35_base_acpf_gens.csv";
+    const legacyFile =
+      season === "summer"
+        ? "rts_gmlc_export_13_40_summer_v35_base_acpf_gens.csv"
+        : "rts_gmlc_export_10_43_winter_v35_base_acpf_gens.csv";
 
     return [
       ...getCasePathCandidates(season, "base_case", legacyFile, solver),
-      `./ca_results/${season}/${legacyFile}`
+      `./ca_results/${season}/${legacyFile}`,
     ];
   };
 
@@ -2148,9 +2371,10 @@
 
     const baseCandidates = [
       ...getBaseCaseRawPathCandidates(season, solver),
-      ...getBaseCaseGenCsvPathCandidates(season, solver)
+      ...getBaseCaseGenCsvPathCandidates(season, solver),
     ];
-    const { path: resolvedPath, text } = await fetchFirstAvailable(baseCandidates);
+    const { path: resolvedPath, text } =
+      await fetchFirstAvailable(baseCandidates);
 
     if (!text) {
       baseCaseGenRowsCacheBySeason.set(cacheKey, []);
@@ -2158,24 +2382,33 @@
     }
 
     if (resolvedPath.endsWith(".raw")) {
-      const rawRows = extractRawSectionRows(text, "BEGIN GENERATOR DATA", "END OF GENERATOR DATA");
-      const rows = rawRows.map((cols) => ({
-        MachineID: String(cols[1] || "").trim(),
-        "Pg(MW)": String(cols[2] || "").trim(),
-        "Qg(MVAr)": String(cols[3] || "").trim(),
-        "PgMax(MW)": String(cols[16] || "").trim(),
-        "PgMin(MW)": String(cols[17] || "").trim(),
-        "QgMax(MVAr)": String(cols[4] || "").trim(),
-        "QgMin(MVAr)": String(cols[5] || "").trim(),
-        Violation: "",
-        __busId: normalizeBusValue(cols[0]),
-        __machineId: normalizeMachineValue(cols[1])
-      })).filter((row) => row.__busId.length > 0 && row.__machineId.length > 0);
+      const rawRows = extractRawSectionRows(
+        text,
+        "BEGIN GENERATOR DATA",
+        "END OF GENERATOR DATA",
+      );
+      const rows = rawRows
+        .map((cols) => ({
+          MachineID: String(cols[1] || "").trim(),
+          "Pg(MW)": String(cols[2] || "").trim(),
+          "Qg(MVAr)": String(cols[3] || "").trim(),
+          "PgMax(MW)": String(cols[16] || "").trim(),
+          "PgMin(MW)": String(cols[17] || "").trim(),
+          "QgMax(MVAr)": String(cols[4] || "").trim(),
+          "QgMin(MVAr)": String(cols[5] || "").trim(),
+          Violation: "",
+          __busId: normalizeBusValue(cols[0]),
+          __machineId: normalizeMachineValue(cols[1]),
+        }))
+        .filter((row) => row.__busId.length > 0 && row.__machineId.length > 0);
       baseCaseGenRowsCacheBySeason.set(cacheKey, rows);
       return rows;
     }
 
-    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+    const lines = text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
     if (!lines.length) {
       baseCaseGenRowsCacheBySeason.set(cacheKey, []);
       return [];
@@ -2202,13 +2435,17 @@
         MachineID: String(cols[machineIndex] || "").trim(),
         "Pg(MW)": String(cols[pgIndex] || "").trim(),
         "Qg(MVAr)": String(cols[qgIndex] || "").trim(),
-        "PgMax(MW)": pgMaxIndex >= 0 ? String(cols[pgMaxIndex] || "").trim() : "",
-        "PgMin(MW)": pgMinIndex >= 0 ? String(cols[pgMinIndex] || "").trim() : "",
-        "QgMax(MVAr)": qgMaxIndex >= 0 ? String(cols[qgMaxIndex] || "").trim() : "",
-        "QgMin(MVAr)": qgMinIndex >= 0 ? String(cols[qgMinIndex] || "").trim() : "",
+        "PgMax(MW)":
+          pgMaxIndex >= 0 ? String(cols[pgMaxIndex] || "").trim() : "",
+        "PgMin(MW)":
+          pgMinIndex >= 0 ? String(cols[pgMinIndex] || "").trim() : "",
+        "QgMax(MVAr)":
+          qgMaxIndex >= 0 ? String(cols[qgMaxIndex] || "").trim() : "",
+        "QgMin(MVAr)":
+          qgMinIndex >= 0 ? String(cols[qgMinIndex] || "").trim() : "",
         Violation: "",
         __busId: normalizeBusValue(cols[busIndex]),
-        __machineId: normalizeMachineValue(cols[machineIndex])
+        __machineId: normalizeMachineValue(cols[machineIndex]),
       };
     });
 
@@ -2242,7 +2479,7 @@
       const pair = `${meta.fromBus}|${meta.toBus}`;
       let row = null;
 
-      for (const ckt of (meta.cktCandidates || [])) {
+      for (const ckt of meta.cktCandidates || []) {
         const match = byPairAndCkt.get(`${pair}|${ckt}`);
         if (match) {
           row = match;
@@ -2300,7 +2537,9 @@
   };
 
   const isTrueValue = (value) => {
-    const text = String(value ?? "").trim().toLowerCase();
+    const text = String(value ?? "")
+      .trim()
+      .toLowerCase();
     return text === "true" || text === "1" || text === "yes";
   };
 
@@ -2342,7 +2581,9 @@
       if (!Number.isFinite(numeric)) {
         return "N/A";
       }
-      return numeric === 0 || numeric === 1 ? String(Math.trunc(numeric)) : truncateTo3(numeric);
+      return numeric === 0 || numeric === 1
+        ? String(Math.trunc(numeric))
+        : truncateTo3(numeric);
     }
     return truncateTo3(value);
   };
@@ -2369,7 +2610,9 @@
   const metricGradient = (metric /* , max */) => {
     const stops = colorStopsForMetric(metric);
     const cssStops = stops
-      .map(([t, c]) => `rgb(${c[0]}, ${c[1]}, ${c[2]}) ${(t * 100).toFixed(2)}%`)
+      .map(
+        ([t, c]) => `rgb(${c[0]}, ${c[1]}, ${c[2]}) ${(t * 100).toFixed(2)}%`,
+      )
       .join(", ");
     return `linear-gradient(to right, ${cssStops})`;
   };
@@ -2421,8 +2664,16 @@
     const values = rows
       .map((row) => getMetricValueForRow(row, metric))
       .filter((v) => Number.isFinite(v));
-    const min = values.length ? (metric === "busVoltage" ? Math.min(...values) : Math.floor(Math.min(...values))) : 0;
-    const max = values.length ? (metric === "busVoltage" ? Math.max(...values) : Math.ceil(Math.max(...values))) : 1;
+    const min = values.length
+      ? metric === "busVoltage"
+        ? Math.min(...values)
+        : Math.floor(Math.min(...values))
+      : 0;
+    const max = values.length
+      ? metric === "busVoltage"
+        ? Math.max(...values)
+        : Math.ceil(Math.max(...values))
+      : 1;
     const gradient = metricGradient(metric, max);
     return `
       <div class="line-color-legend-section">
@@ -2444,16 +2695,22 @@
     const hasLineMetric = !!activeLineMetric;
     const hasBusMetric = !!isBusVoltageMetricActive;
     const hasGenMetric = !!activeGeneratorMetric;
-    const shouldShowContingency = currentViewMode === "contingency" && activeContingencyConverged && (hasLineMetric || hasBusMetric || hasGenMetric);
+    const shouldShowContingency =
+      currentViewMode === "contingency" &&
+      activeContingencyConverged &&
+      (hasLineMetric || hasBusMetric || hasGenMetric);
 
     const hasBcLineMetric = !!activeBaseCaseLineMetric;
     const hasBcBusMetric = !!isBaseCaseBusVoltageMetricActive;
     const hasBcGenMetric = !!activeBaseCaseGeneratorMetric;
-    const shouldShowBaseCase = currentViewMode === "baseCase" && (hasBcLineMetric || hasBcBusMetric || hasBcGenMetric);
+    const shouldShowBaseCase =
+      currentViewMode === "baseCase" &&
+      (hasBcLineMetric || hasBcBusMetric || hasBcGenMetric);
 
     const shouldShowSimulation = currentViewMode === "simulation";
 
-    const shouldShow = shouldShowContingency || shouldShowBaseCase || shouldShowSimulation;
+    const shouldShow =
+      shouldShowContingency || shouldShowBaseCase || shouldShowSimulation;
     lineColorLegendElement.style.display = shouldShow ? "block" : "none";
 
     if (!shouldShow) {
@@ -2468,13 +2725,28 @@
     if (shouldShowBaseCase) {
       const sections = [];
       if (hasBcLineMetric) {
-        sections.push(legendSectionHtmlForRows(activeBaseCaseLineMetric, Object.values(baseCaseFlowRowsByUid)));
+        sections.push(
+          legendSectionHtmlForRows(
+            activeBaseCaseLineMetric,
+            Object.values(baseCaseFlowRowsByUid),
+          ),
+        );
       }
       if (hasBcBusMetric) {
-        sections.push(legendSectionHtmlForRows("busVoltage", Object.values(baseCaseBusRowsByBusId)));
+        sections.push(
+          legendSectionHtmlForRows(
+            "busVoltage",
+            Object.values(baseCaseBusRowsByBusId),
+          ),
+        );
       }
       if (hasBcGenMetric) {
-        sections.push(legendSectionHtmlForRows(activeBaseCaseGeneratorMetric, Object.values(baseCaseGenRowsByBusAndMachine)));
+        sections.push(
+          legendSectionHtmlForRows(
+            activeBaseCaseGeneratorMetric,
+            Object.values(baseCaseGenRowsByBusAndMachine),
+          ),
+        );
       }
       lineColorLegendElement.innerHTML = sections.join("");
       return;
@@ -2494,36 +2766,57 @@
   };
 
   const refreshMetricButtonsState = () => {
-    const enabled = !!selectedContingencyUid && !!selectedContingencySeason && activeContingencyConverged;
+    const enabled =
+      !!selectedContingencyUid &&
+      !!selectedContingencySeason &&
+      activeContingencyConverged;
 
     if (loadingMetricButton) {
       loadingMetricButton.disabled = !enabled;
-      loadingMetricButton.classList.toggle("active", activeLineMetric === "loading");
+      loadingMetricButton.classList.toggle(
+        "active",
+        activeLineMetric === "loading",
+      );
     }
 
     if (lineFlowMetricButton) {
       lineFlowMetricButton.disabled = !enabled;
-      lineFlowMetricButton.classList.toggle("active", activeLineMetric === "lineFlow");
+      lineFlowMetricButton.classList.toggle(
+        "active",
+        activeLineMetric === "lineFlow",
+      );
     }
 
     if (tempCondMetricButton) {
       tempCondMetricButton.disabled = !enabled;
-      tempCondMetricButton.classList.toggle("active", activeLineMetric === "tempCond");
+      tempCondMetricButton.classList.toggle(
+        "active",
+        activeLineMetric === "tempCond",
+      );
     }
 
     if (busVoltageMetricButton) {
       busVoltageMetricButton.disabled = !enabled;
-      busVoltageMetricButton.classList.toggle("active", isBusVoltageMetricActive);
+      busVoltageMetricButton.classList.toggle(
+        "active",
+        isBusVoltageMetricActive,
+      );
     }
 
     if (genActiveMetricButton) {
       genActiveMetricButton.disabled = !enabled;
-      genActiveMetricButton.classList.toggle("active", activeGeneratorMetric === "genActive");
+      genActiveMetricButton.classList.toggle(
+        "active",
+        activeGeneratorMetric === "genActive",
+      );
     }
 
     if (genReactiveMetricButton) {
       genReactiveMetricButton.disabled = !enabled;
-      genReactiveMetricButton.classList.toggle("active", activeGeneratorMetric === "genReactive");
+      genReactiveMetricButton.classList.toggle(
+        "active",
+        activeGeneratorMetric === "genReactive",
+      );
     }
 
     if (violationGlowButton) {
@@ -2548,36 +2841,66 @@
     }
 
     if (contingencyFnslButton) {
-      contingencyFnslButton.classList.toggle("active", selectedContingencySolver === "fnsl");
+      contingencyFnslButton.classList.toggle(
+        "active",
+        selectedContingencySolver === "fnsl",
+      );
     }
     if (contingencyInlfButton) {
-      contingencyInlfButton.classList.toggle("active", selectedContingencySolver === "inlf");
+      contingencyInlfButton.classList.toggle(
+        "active",
+        selectedContingencySolver === "inlf",
+      );
     }
 
     // Base case buttons are always enabled when in base case mode
     if (bcLoadingMetricButton) {
-      bcLoadingMetricButton.classList.toggle("active", activeBaseCaseLineMetric === "loading");
+      bcLoadingMetricButton.classList.toggle(
+        "active",
+        activeBaseCaseLineMetric === "loading",
+      );
     }
     if (bcLineFlowMetricButton) {
-      bcLineFlowMetricButton.classList.toggle("active", activeBaseCaseLineMetric === "lineFlow");
+      bcLineFlowMetricButton.classList.toggle(
+        "active",
+        activeBaseCaseLineMetric === "lineFlow",
+      );
     }
     if (bcTempCondMetricButton) {
-      bcTempCondMetricButton.classList.toggle("active", activeBaseCaseLineMetric === "tempCond");
+      bcTempCondMetricButton.classList.toggle(
+        "active",
+        activeBaseCaseLineMetric === "tempCond",
+      );
     }
     if (bcBusVoltageMetricButton) {
-      bcBusVoltageMetricButton.classList.toggle("active", isBaseCaseBusVoltageMetricActive);
+      bcBusVoltageMetricButton.classList.toggle(
+        "active",
+        isBaseCaseBusVoltageMetricActive,
+      );
     }
     if (bcGenActiveMetricButton) {
-      bcGenActiveMetricButton.classList.toggle("active", activeBaseCaseGeneratorMetric === "genActive");
+      bcGenActiveMetricButton.classList.toggle(
+        "active",
+        activeBaseCaseGeneratorMetric === "genActive",
+      );
     }
     if (bcGenReactiveMetricButton) {
-      bcGenReactiveMetricButton.classList.toggle("active", activeBaseCaseGeneratorMetric === "genReactive");
+      bcGenReactiveMetricButton.classList.toggle(
+        "active",
+        activeBaseCaseGeneratorMetric === "genReactive",
+      );
     }
     if (baseCaseFnslButton) {
-      baseCaseFnslButton.classList.toggle("active", selectedBaseCaseSolver === "fnsl");
+      baseCaseFnslButton.classList.toggle(
+        "active",
+        selectedBaseCaseSolver === "fnsl",
+      );
     }
     if (baseCaseInlfButton) {
-      baseCaseInlfButton.classList.toggle("active", selectedBaseCaseSolver === "inlf");
+      baseCaseInlfButton.classList.toggle(
+        "active",
+        selectedBaseCaseSolver === "inlf",
+      );
     }
   };
 
@@ -2602,12 +2925,18 @@
       `<b>Active Losses:</b> ${esc(formatMetric(row["Ploss(MW)"], "MW"))}`,
       `<b>Reactive Losses:</b> ${esc(formatMetric(row["Qloss(MVAr)"], "MVAr"))}`,
       `<b>Loading:</b> ${esc(formatIntegerMetric(row["Loading_%"], "%"))}`,
-      `<b>Violation:</b> ${esc(violation)}`
+      `<b>Violation:</b> ${esc(violation)}`,
     ];
 
-    if (row[TEMP_COND_COLUMN] != null && String(row[TEMP_COND_COLUMN]).length > 0) {
-      detailRows.splice(detailRows.length - 1, 0,
-        `<b>Conductor Temp:</b> ${esc(formatMetric(row[TEMP_COND_COLUMN], "°C"))}`);
+    if (
+      row[TEMP_COND_COLUMN] != null &&
+      String(row[TEMP_COND_COLUMN]).length > 0
+    ) {
+      detailRows.splice(
+        detailRows.length - 1,
+        0,
+        `<b>Conductor Temp:</b> ${esc(formatMetric(row[TEMP_COND_COLUMN], "°C"))}`,
+      );
     }
 
     return `<b>${title}</b><br>${detailRows.join("<br>")}`;
@@ -2629,7 +2958,11 @@
     const set = new Set();
     const collect = (rows) => {
       rows.forEach((r) => {
-        const converged = String(r.Converged != null ? r.Converged : r.__converged || "").trim().toLowerCase();
+        const converged = String(
+          r.Converged != null ? r.Converged : r.__converged || "",
+        )
+          .trim()
+          .toLowerCase();
         if (converged === "false") {
           const name = String(r.__contingency || "").trim();
           if (name) {
@@ -2642,83 +2975,152 @@
       const [lineRows, busRows, genRows] = await Promise.all([
         readSeasonLineFlowsCsv(season, solver).catch(() => []),
         readSeasonBusCsv(season, solver).catch(() => []),
-        readSeasonGenCsv(season, solver).catch(() => [])
+        readSeasonGenCsv(season, solver).catch(() => []),
       ]);
       collect(lineRows);
       collect(busRows);
       collect(genRows);
-    } catch (_e) { /* keep empty set */ }
+    } catch (_e) {
+      /* keep empty set */
+    }
     nonConvergedContingencyNamesBySeason.set(cacheKey, set);
     return set;
   };
 
-  const createContingencyControl = (branchGeo, lineNameByUid, onSelectionChange, onMetricChange, onSolverChange, onPlotData) => {
-    const lineOptions = Array.from(new Set((branchGeo.features || [])
-      .map((feature) => String((feature && feature.properties && feature.properties.UID) || ""))
-      .filter((uid) => uid.length > 0)))
-      .sort((a, b) => a.localeCompare(b));
+  const createContingencyControl = (
+    branchGeo,
+    lineNameByUid,
+    onSelectionChange,
+    onMetricChange,
+    onSolverChange,
+    onPlotData,
+  ) => {
+    const lineOptions = Array.from(
+      new Set(
+        (branchGeo.features || [])
+          .map((feature) =>
+            String(
+              (feature && feature.properties && feature.properties.UID) || "",
+            ),
+          )
+          .filter((uid) => uid.length > 0),
+      ),
+    ).sort((a, b) => a.localeCompare(b));
 
     const ContingencyControl = L.Control.extend({
       options: { position: "topleft" },
       onAdd() {
-        const container = L.DomUtil.create("div", "contingency-control leaflet-bar");
+        const container = L.DomUtil.create(
+          "div",
+          "contingency-control leaflet-bar",
+        );
         contingencyControlContainer = container;
         const panel = L.DomUtil.create("div", "contingency-panel", container);
 
-        const button = L.DomUtil.create("button", "contingency-toggle-btn", panel);
+        const button = L.DomUtil.create(
+          "button",
+          "contingency-toggle-btn",
+          panel,
+        );
         button.type = "button";
         button.textContent = "Contingency Analysis";
         button.title = "Show line contingency selector";
 
-        const dropdownWrap = L.DomUtil.create("div", "contingency-dropdown-wrap", panel);
+        const dropdownWrap = L.DomUtil.create(
+          "div",
+          "contingency-dropdown-wrap",
+          panel,
+        );
         dropdownWrap.style.display = "none";
 
         // Custom searchable combobox for the contingency line picker. The
         // search input only appears when the dropdown is opened. We expose a
         // tiny `select`-like API (`.value`, `.options`, `addEventListener`,
         // `.disabled`) so the rest of the control logic stays unchanged.
-        const lineCombo = L.DomUtil.create("div", "contingency-combo", dropdownWrap);
-        const lineComboTrigger = L.DomUtil.create("button", "contingency-select contingency-combo-trigger", lineCombo);
+        const lineCombo = L.DomUtil.create(
+          "div",
+          "contingency-combo",
+          dropdownWrap,
+        );
+        const lineComboTrigger = L.DomUtil.create(
+          "button",
+          "contingency-select contingency-combo-trigger",
+          lineCombo,
+        );
         lineComboTrigger.type = "button";
-        const lineComboTriggerLabel = L.DomUtil.create("span", "contingency-combo-trigger-label", lineComboTrigger);
+        const lineComboTriggerLabel = L.DomUtil.create(
+          "span",
+          "contingency-combo-trigger-label",
+          lineComboTrigger,
+        );
         lineComboTriggerLabel.textContent = "Select line";
-        const lineComboCaret = L.DomUtil.create("span", "contingency-combo-caret", lineComboTrigger);
+        const lineComboCaret = L.DomUtil.create(
+          "span",
+          "contingency-combo-caret",
+          lineComboTrigger,
+        );
         lineComboCaret.textContent = "▾";
 
-        const lineComboPanel = L.DomUtil.create("div", "contingency-combo-panel", lineCombo);
+        const lineComboPanel = L.DomUtil.create(
+          "div",
+          "contingency-combo-panel",
+          lineCombo,
+        );
         lineComboPanel.style.display = "none";
         L.DomEvent.disableClickPropagation(lineComboPanel);
         L.DomEvent.disableScrollPropagation(lineComboPanel);
 
-        const lineComboSearch = L.DomUtil.create("input", "contingency-search", lineComboPanel);
+        const lineComboSearch = L.DomUtil.create(
+          "input",
+          "contingency-search",
+          lineComboPanel,
+        );
         lineComboSearch.type = "search";
         lineComboSearch.placeholder = "Search by line, bus #, or circuit…";
         lineComboSearch.autocomplete = "off";
         L.DomEvent.disableClickPropagation(lineComboSearch);
 
-        const lineComboList = L.DomUtil.create("div", "contingency-combo-list", lineComboPanel);
-        const lineComboEmpty = L.DomUtil.create("div", "contingency-search-empty", lineComboPanel);
+        const lineComboList = L.DomUtil.create(
+          "div",
+          "contingency-combo-list",
+          lineComboPanel,
+        );
+        const lineComboEmpty = L.DomUtil.create(
+          "div",
+          "contingency-search-empty",
+          lineComboPanel,
+        );
         lineComboEmpty.textContent = "No lines match the search.";
         lineComboEmpty.style.display = "none";
 
         // Synthetic option model — exposes the same shape as <option>.
         const comboOptions = [];
         const makeOption = (uid, textContent) => {
-          const node = L.DomUtil.create("button", "contingency-combo-option", lineComboList);
+          const node = L.DomUtil.create(
+            "button",
+            "contingency-combo-option",
+            lineComboList,
+          );
           node.type = "button";
           node.textContent = textContent;
           const option = {
             value: uid,
             _node: node,
             _hidden: false,
-            get textContent() { return node.textContent; },
-            set textContent(v) { node.textContent = v; },
-            get hidden() { return option._hidden; },
+            get textContent() {
+              return node.textContent;
+            },
+            set textContent(v) {
+              node.textContent = v;
+            },
+            get hidden() {
+              return option._hidden;
+            },
             set hidden(v) {
               option._hidden = !!v;
               node.style.display = v ? "none" : "";
             },
-            classList: node.classList
+            classList: node.classList,
           };
           node.addEventListener("click", () => {
             comboSetValue(uid, true);
@@ -2733,9 +3135,13 @@
           value: "",
           _hidden: false,
           textContent: "Select line",
-          get hidden() { return this._hidden; },
-          set hidden(v) { this._hidden = !!v; },
-          classList: { toggle() {} }
+          get hidden() {
+            return this._hidden;
+          },
+          set hidden(v) {
+            this._hidden = !!v;
+          },
+          classList: { toggle() {} },
         };
         comboOptions.push(noneOption);
 
@@ -2746,29 +3152,40 @@
         const comboSetValue = (val, fireChange) => {
           comboValue = val || "";
           const opt = comboOptions.find((o) => o.value === comboValue);
-          lineComboTriggerLabel.textContent = opt && opt.value
-            ? opt.textContent
-            : "Select line";
+          lineComboTriggerLabel.textContent =
+            opt && opt.value ? opt.textContent : "Select line";
           if (fireChange) {
             comboListeners.forEach((fn) => fn());
           }
         };
 
         const select = {
-          get value() { return comboValue; },
-          set value(v) { comboSetValue(v, false); },
-          get options() { return comboOptions; },
-          get disabled() { return lineComboTrigger.disabled; },
-          set disabled(v) { lineComboTrigger.disabled = !!v; },
+          get value() {
+            return comboValue;
+          },
+          set value(v) {
+            comboSetValue(v, false);
+          },
+          get options() {
+            return comboOptions;
+          },
+          get disabled() {
+            return lineComboTrigger.disabled;
+          },
+          set disabled(v) {
+            lineComboTrigger.disabled = !!v;
+          },
           addEventListener(evt, fn) {
             if (evt === "change") {
               comboListeners.push(fn);
             }
-          }
+          },
         };
 
         const applyComboSearchFilter = () => {
-          const query = String(lineComboSearch.value || "").trim().toLowerCase();
+          const query = String(lineComboSearch.value || "")
+            .trim()
+            .toLowerCase();
           let visibleCount = 0;
           comboOptions.forEach((option) => {
             if (!option.value) {
@@ -2780,7 +3197,8 @@
             option.hidden = !match;
             if (match) visibleCount += 1;
           });
-          lineComboEmpty.style.display = (query && visibleCount === 0) ? "block" : "none";
+          lineComboEmpty.style.display =
+            query && visibleCount === 0 ? "block" : "none";
         };
 
         const openLineCombo = () => {
@@ -2813,7 +3231,11 @@
           }
         });
 
-        const seasonSelect = L.DomUtil.create("select", "contingency-select contingency-season-select", dropdownWrap);
+        const seasonSelect = L.DomUtil.create(
+          "select",
+          "contingency-select contingency-season-select",
+          dropdownWrap,
+        );
         const noSeasonOption = L.DomUtil.create("option", "", seasonSelect);
         noSeasonOption.value = "";
         noSeasonOption.textContent = "Select season";
@@ -2826,47 +3248,94 @@
         winterOption.value = "winter";
         winterOption.textContent = "Winter";
 
-        const solverButtonsWrap = L.DomUtil.create("div", "contingency-metric-buttons", dropdownWrap);
-        contingencyFnslButton = L.DomUtil.create("button", "contingency-metric-btn", solverButtonsWrap);
+        const solverButtonsWrap = L.DomUtil.create(
+          "div",
+          "contingency-metric-buttons",
+          dropdownWrap,
+        );
+        contingencyFnslButton = L.DomUtil.create(
+          "button",
+          "contingency-metric-btn",
+          solverButtonsWrap,
+        );
         contingencyFnslButton.type = "button";
         contingencyFnslButton.textContent = "FNSL";
         contingencyFnslButton.title = "Newton-Raphson power flow results";
 
-        contingencyInlfButton = L.DomUtil.create("button", "contingency-metric-btn", solverButtonsWrap);
+        contingencyInlfButton = L.DomUtil.create(
+          "button",
+          "contingency-metric-btn",
+          solverButtonsWrap,
+        );
         contingencyInlfButton.type = "button";
         contingencyInlfButton.textContent = "INLF";
-        contingencyInlfButton.title = "Inertial/Governor Newton-Raphson results";
+        contingencyInlfButton.title =
+          "Inertial/Governor Newton-Raphson results";
 
-        const metricButtonsWrap = L.DomUtil.create("div", "contingency-metric-buttons", dropdownWrap);
-        loadingMetricButton = L.DomUtil.create("button", "contingency-metric-btn active", metricButtonsWrap);
+        const metricButtonsWrap = L.DomUtil.create(
+          "div",
+          "contingency-metric-buttons",
+          dropdownWrap,
+        );
+        loadingMetricButton = L.DomUtil.create(
+          "button",
+          "contingency-metric-btn active",
+          metricButtonsWrap,
+        );
         loadingMetricButton.type = "button";
         loadingMetricButton.textContent = "Loading";
 
-        lineFlowMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
+        lineFlowMetricButton = L.DomUtil.create(
+          "button",
+          "contingency-metric-btn",
+          metricButtonsWrap,
+        );
         lineFlowMetricButton.type = "button";
         lineFlowMetricButton.textContent = "Line Flow";
 
-        tempCondMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
+        tempCondMetricButton = L.DomUtil.create(
+          "button",
+          "contingency-metric-btn",
+          metricButtonsWrap,
+        );
         tempCondMetricButton.type = "button";
         tempCondMetricButton.textContent = "Conductor Temperature";
-        tempCondMetricButton.title = "Real-weather IEEE 738 conductor surface temperature";
+        tempCondMetricButton.title =
+          "Real-weather IEEE 738 conductor surface temperature";
 
-        busVoltageMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
+        busVoltageMetricButton = L.DomUtil.create(
+          "button",
+          "contingency-metric-btn",
+          metricButtonsWrap,
+        );
         busVoltageMetricButton.type = "button";
         busVoltageMetricButton.textContent = "Bus Voltages";
 
-        genActiveMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
+        genActiveMetricButton = L.DomUtil.create(
+          "button",
+          "contingency-metric-btn",
+          metricButtonsWrap,
+        );
         genActiveMetricButton.type = "button";
         genActiveMetricButton.textContent = "Gen Active Power";
 
-        genReactiveMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
+        genReactiveMetricButton = L.DomUtil.create(
+          "button",
+          "contingency-metric-btn",
+          metricButtonsWrap,
+        );
         genReactiveMetricButton.type = "button";
         genReactiveMetricButton.textContent = "Gen Reactive Power";
 
-        violationGlowButton = L.DomUtil.create("button", "contingency-metric-btn violation-glow-btn", metricButtonsWrap);
+        violationGlowButton = L.DomUtil.create(
+          "button",
+          "contingency-metric-btn violation-glow-btn",
+          metricButtonsWrap,
+        );
         violationGlowButton.type = "button";
         violationGlowButton.textContent = "Show Violations";
-        violationGlowButton.title = "Glow lines, buses, and generators with Violation = True under the selected contingency";
+        violationGlowButton.title =
+          "Glow lines, buses, and generators with Violation = True under the selected contingency";
         violationGlowButton.disabled = true;
 
         // Floating summary panel anchored at the top of the map (under tabs).
@@ -2918,14 +3387,18 @@
           const { lines, buses, gens, total } = countActiveViolations();
           if (total === 0) {
             violationSummaryText.textContent = "No violations to show.";
-            violationSummaryPanel.classList.add("violation-summary-panel--empty");
+            violationSummaryPanel.classList.add(
+              "violation-summary-panel--empty",
+            );
           } else {
             const parts = [];
             if (lines) parts.push(`${lines} line${lines === 1 ? "" : "s"}`);
             if (buses) parts.push(`${buses} bus${buses === 1 ? "" : "es"}`);
             if (gens) parts.push(`${gens} generator${gens === 1 ? "" : "s"}`);
             violationSummaryText.textContent = `${total} violation${total === 1 ? "" : "s"} found: ${parts.join(", ")}.`;
-            violationSummaryPanel.classList.remove("violation-summary-panel--empty");
+            violationSummaryPanel.classList.remove(
+              "violation-summary-panel--empty",
+            );
           }
           violationSummaryPanel.style.display = "flex";
         };
@@ -2954,7 +3427,9 @@
           // the lines whose outage breaks the power flow.
           const nonConvergedUnion = new Set();
           ["summer", "winter"].forEach((season) => {
-            const set = nonConvergedContingencyNamesBySeason.get(scenarioCacheKey(season, selectedContingencySolver));
+            const set = nonConvergedContingencyNamesBySeason.get(
+              scenarioCacheKey(season, selectedContingencySolver),
+            );
             if (set) {
               set.forEach((name) => nonConvergedUnion.add(name));
             }
@@ -2968,7 +3443,10 @@
             const contName = lineNameByUid[option.value] || option.value;
             const isNonConverged = nonConvergedUnion.has(contName);
             option.textContent = `${isNonConverged ? "⚠ " : ""}${baseLabel}${season ? "" : ""}`;
-            option.classList.toggle("contingency-option-violation", isNonConverged);
+            option.classList.toggle(
+              "contingency-option-violation",
+              isNonConverged,
+            );
           });
           // Keep the combobox trigger label in sync with the relabeled option.
           if (comboValue) {
@@ -2988,7 +3466,10 @@
             refreshLineOptionLabels();
             return;
           }
-          loadNonConvergedContingencyNames(season, selectedContingencySolver).then(() => {
+          loadNonConvergedContingencyNames(
+            season,
+            selectedContingencySolver,
+          ).then(() => {
             refreshLineOptionLabels();
           });
         };
@@ -3000,7 +3481,10 @@
             return;
           }
           seasonSelect.disabled = false;
-          seasonSelect.value = contingencySeasonByUid[selectedContingencyUid] || selectedContingencySeason || "";
+          seasonSelect.value =
+            contingencySeasonByUid[selectedContingencyUid] ||
+            selectedContingencySeason ||
+            "";
         };
 
         seasonSelect.disabled = true;
@@ -3042,16 +3526,27 @@
           selectedContingencyUid = select.value;
 
           // Persist the current season across line changes.
-          if (selectedContingencyUid && selectedContingencySeason && !contingencySeasonByUid[selectedContingencyUid]) {
-            contingencySeasonByUid[selectedContingencyUid] = selectedContingencySeason;
+          if (
+            selectedContingencyUid &&
+            selectedContingencySeason &&
+            !contingencySeasonByUid[selectedContingencyUid]
+          ) {
+            contingencySeasonByUid[selectedContingencyUid] =
+              selectedContingencySeason;
           }
 
           syncSeasonSelectWithLine();
           refreshLineHighlight();
           selectedContingencySeason = selectedContingencyUid
-            ? (contingencySeasonByUid[selectedContingencyUid] || selectedContingencySeason || "")
+            ? contingencySeasonByUid[selectedContingencyUid] ||
+              selectedContingencySeason ||
+              ""
             : "";
-          onSelectionChange(selectedContingencyUid, selectedContingencySeason, selectedContingencySolver);
+          onSelectionChange(
+            selectedContingencyUid,
+            selectedContingencySeason,
+            selectedContingencySolver,
+          );
         });
 
         seasonSelect.addEventListener("change", () => {
@@ -3066,8 +3561,13 @@
           }
 
           refreshLineOptionLabels();
-          selectedContingencySeason = contingencySeasonByUid[selectedContingencyUid] || "";
-          onSelectionChange(selectedContingencyUid, selectedContingencySeason, selectedContingencySolver);
+          selectedContingencySeason =
+            contingencySeasonByUid[selectedContingencyUid] || "";
+          onSelectionChange(
+            selectedContingencyUid,
+            selectedContingencySeason,
+            selectedContingencySolver,
+          );
         });
 
         loadingMetricButton.addEventListener("click", () => {
@@ -3076,12 +3576,14 @@
         });
 
         lineFlowMetricButton.addEventListener("click", () => {
-          activeLineMetric = activeLineMetric === "lineFlow" ? null : "lineFlow";
+          activeLineMetric =
+            activeLineMetric === "lineFlow" ? null : "lineFlow";
           onMetricChange();
         });
 
         tempCondMetricButton.addEventListener("click", () => {
-          activeLineMetric = activeLineMetric === "tempCond" ? null : "tempCond";
+          activeLineMetric =
+            activeLineMetric === "tempCond" ? null : "tempCond";
           onMetricChange();
         });
 
@@ -3091,18 +3593,28 @@
         });
 
         genActiveMetricButton.addEventListener("click", () => {
-          activeGeneratorMetric = activeGeneratorMetric === "genActive" ? null : "genActive";
+          activeGeneratorMetric =
+            activeGeneratorMetric === "genActive" ? null : "genActive";
           onMetricChange();
         });
 
         genReactiveMetricButton.addEventListener("click", () => {
-          activeGeneratorMetric = activeGeneratorMetric === "genReactive" ? null : "genReactive";
+          activeGeneratorMetric =
+            activeGeneratorMetric === "genReactive" ? null : "genReactive";
           onMetricChange();
         });
 
-        const actionsCard = L.DomUtil.create("div", "control-actions-card", dropdownWrap);
+        const actionsCard = L.DomUtil.create(
+          "div",
+          "control-actions-card",
+          dropdownWrap,
+        );
 
-        const caShowDataBtn = L.DomUtil.create("button", "bc-show-data-btn", actionsCard);
+        const caShowDataBtn = L.DomUtil.create(
+          "button",
+          "bc-show-data-btn",
+          actionsCard,
+        );
         caShowDataBtn.type = "button";
         caShowDataBtn.textContent = "Show Data";
         caShowDataBtn.disabled = true;
@@ -3112,7 +3624,11 @@
           }
         });
 
-        const caPlotDataBtn = L.DomUtil.create("button", "bc-plot-data-btn", actionsCard);
+        const caPlotDataBtn = L.DomUtil.create(
+          "button",
+          "bc-plot-data-btn",
+          actionsCard,
+        );
         caPlotDataBtn.type = "button";
         caPlotDataBtn.textContent = "Plot Data";
         caPlotDataBtn.disabled = true;
@@ -3135,29 +3651,49 @@
         L.DomEvent.disableClickPropagation(container);
         L.DomEvent.disableScrollPropagation(container);
         return container;
-      }
+      },
     });
 
     map.addControl(new ContingencyControl());
   };
 
-  const createBaseCaseControl = (onSeasonChange, onMetricChange, onSolverChange, onPlotData) => {
+  const createBaseCaseControl = (
+    onSeasonChange,
+    onMetricChange,
+    onSolverChange,
+    onPlotData,
+  ) => {
     const BaseCaseControl = L.Control.extend({
       options: { position: "topleft" },
       onAdd() {
-        const container = L.DomUtil.create("div", "contingency-control leaflet-bar");
+        const container = L.DomUtil.create(
+          "div",
+          "contingency-control leaflet-bar",
+        );
         baseCaseControlContainer = container;
         const panel = L.DomUtil.create("div", "contingency-panel", container);
 
-        const button = L.DomUtil.create("button", "contingency-toggle-btn active", panel);
+        const button = L.DomUtil.create(
+          "button",
+          "contingency-toggle-btn active",
+          panel,
+        );
         button.type = "button";
         button.textContent = "Base Case";
         button.title = "Show base case controls";
 
-        const dropdownWrap = L.DomUtil.create("div", "contingency-dropdown-wrap", panel);
+        const dropdownWrap = L.DomUtil.create(
+          "div",
+          "contingency-dropdown-wrap",
+          panel,
+        );
         dropdownWrap.style.display = "block";
 
-        const seasonSelect = L.DomUtil.create("select", "contingency-select contingency-season-select", dropdownWrap);
+        const seasonSelect = L.DomUtil.create(
+          "select",
+          "contingency-select contingency-season-select",
+          dropdownWrap,
+        );
         const summerOption = L.DomUtil.create("option", "", seasonSelect);
         summerOption.value = "summer";
         summerOption.textContent = "Summer";
@@ -3166,41 +3702,82 @@
         winterOption.textContent = "Winter";
         seasonSelect.value = selectedBaseCaseSeason;
 
-        const solverButtonsWrap = L.DomUtil.create("div", "contingency-metric-buttons", dropdownWrap);
-        baseCaseFnslButton = L.DomUtil.create("button", "contingency-metric-btn", solverButtonsWrap);
+        const solverButtonsWrap = L.DomUtil.create(
+          "div",
+          "contingency-metric-buttons",
+          dropdownWrap,
+        );
+        baseCaseFnslButton = L.DomUtil.create(
+          "button",
+          "contingency-metric-btn",
+          solverButtonsWrap,
+        );
         baseCaseFnslButton.type = "button";
         baseCaseFnslButton.textContent = "FNSL";
         baseCaseFnslButton.title = "Newton-Raphson power flow results";
 
-        baseCaseInlfButton = L.DomUtil.create("button", "contingency-metric-btn", solverButtonsWrap);
+        baseCaseInlfButton = L.DomUtil.create(
+          "button",
+          "contingency-metric-btn",
+          solverButtonsWrap,
+        );
         baseCaseInlfButton.type = "button";
         baseCaseInlfButton.textContent = "INLF";
         baseCaseInlfButton.title = "Inertial/Governor Newton-Raphson results";
 
-        const metricButtonsWrap = L.DomUtil.create("div", "contingency-metric-buttons", dropdownWrap);
+        const metricButtonsWrap = L.DomUtil.create(
+          "div",
+          "contingency-metric-buttons",
+          dropdownWrap,
+        );
 
-        bcLoadingMetricButton = L.DomUtil.create("button", "contingency-metric-btn active", metricButtonsWrap);
+        bcLoadingMetricButton = L.DomUtil.create(
+          "button",
+          "contingency-metric-btn active",
+          metricButtonsWrap,
+        );
         bcLoadingMetricButton.type = "button";
         bcLoadingMetricButton.textContent = "Loading";
 
-        bcLineFlowMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
+        bcLineFlowMetricButton = L.DomUtil.create(
+          "button",
+          "contingency-metric-btn",
+          metricButtonsWrap,
+        );
         bcLineFlowMetricButton.type = "button";
         bcLineFlowMetricButton.textContent = "Line Flow";
 
-        bcTempCondMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
+        bcTempCondMetricButton = L.DomUtil.create(
+          "button",
+          "contingency-metric-btn",
+          metricButtonsWrap,
+        );
         bcTempCondMetricButton.type = "button";
         bcTempCondMetricButton.textContent = "Conductor Temperature";
-        bcTempCondMetricButton.title = "Real-weather IEEE 738 conductor surface temperature";
+        bcTempCondMetricButton.title =
+          "Real-weather IEEE 738 conductor surface temperature";
 
-        bcBusVoltageMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
+        bcBusVoltageMetricButton = L.DomUtil.create(
+          "button",
+          "contingency-metric-btn",
+          metricButtonsWrap,
+        );
         bcBusVoltageMetricButton.type = "button";
         bcBusVoltageMetricButton.textContent = "Bus Voltages";
 
-        bcGenActiveMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
+        bcGenActiveMetricButton = L.DomUtil.create(
+          "button",
+          "contingency-metric-btn",
+          metricButtonsWrap,
+        );
         bcGenActiveMetricButton.type = "button";
         bcGenActiveMetricButton.textContent = "Gen Active Power";
 
-        bcGenReactiveMetricButton = L.DomUtil.create("button", "contingency-metric-btn", metricButtonsWrap);
+        bcGenReactiveMetricButton = L.DomUtil.create(
+          "button",
+          "contingency-metric-btn",
+          metricButtonsWrap,
+        );
         bcGenReactiveMetricButton.type = "button";
         bcGenReactiveMetricButton.textContent = "Gen Reactive Power";
 
@@ -3232,17 +3809,20 @@
         });
 
         bcLoadingMetricButton.addEventListener("click", () => {
-          activeBaseCaseLineMetric = activeBaseCaseLineMetric === "loading" ? null : "loading";
+          activeBaseCaseLineMetric =
+            activeBaseCaseLineMetric === "loading" ? null : "loading";
           onMetricChange();
         });
 
         bcLineFlowMetricButton.addEventListener("click", () => {
-          activeBaseCaseLineMetric = activeBaseCaseLineMetric === "lineFlow" ? null : "lineFlow";
+          activeBaseCaseLineMetric =
+            activeBaseCaseLineMetric === "lineFlow" ? null : "lineFlow";
           onMetricChange();
         });
 
         bcTempCondMetricButton.addEventListener("click", () => {
-          activeBaseCaseLineMetric = activeBaseCaseLineMetric === "tempCond" ? null : "tempCond";
+          activeBaseCaseLineMetric =
+            activeBaseCaseLineMetric === "tempCond" ? null : "tempCond";
           onMetricChange();
         });
 
@@ -3252,18 +3832,30 @@
         });
 
         bcGenActiveMetricButton.addEventListener("click", () => {
-          activeBaseCaseGeneratorMetric = activeBaseCaseGeneratorMetric === "genActive" ? null : "genActive";
+          activeBaseCaseGeneratorMetric =
+            activeBaseCaseGeneratorMetric === "genActive" ? null : "genActive";
           onMetricChange();
         });
 
         bcGenReactiveMetricButton.addEventListener("click", () => {
-          activeBaseCaseGeneratorMetric = activeBaseCaseGeneratorMetric === "genReactive" ? null : "genReactive";
+          activeBaseCaseGeneratorMetric =
+            activeBaseCaseGeneratorMetric === "genReactive"
+              ? null
+              : "genReactive";
           onMetricChange();
         });
 
-        const actionsCard = L.DomUtil.create("div", "control-actions-card", dropdownWrap);
+        const actionsCard = L.DomUtil.create(
+          "div",
+          "control-actions-card",
+          dropdownWrap,
+        );
 
-        const showDataBtn = L.DomUtil.create("button", "bc-show-data-btn", actionsCard);
+        const showDataBtn = L.DomUtil.create(
+          "button",
+          "bc-show-data-btn",
+          actionsCard,
+        );
         showDataBtn.type = "button";
         showDataBtn.textContent = "Show Data";
         showDataBtn.addEventListener("click", () => {
@@ -3272,7 +3864,11 @@
           }
         });
 
-        const plotDataBtn = L.DomUtil.create("button", "bc-plot-data-btn", actionsCard);
+        const plotDataBtn = L.DomUtil.create(
+          "button",
+          "bc-plot-data-btn",
+          actionsCard,
+        );
         plotDataBtn.type = "button";
         plotDataBtn.textContent = "Plot Data";
         plotDataBtn.addEventListener("click", () => {
@@ -3287,7 +3883,7 @@
         L.DomEvent.disableClickPropagation(container);
         L.DomEvent.disableScrollPropagation(container);
         return container;
-      }
+      },
     });
 
     map.addControl(new BaseCaseControl());
@@ -3295,13 +3891,30 @@
 
   // ── Simulation: annual conductor temperature animation ─────────────────
   const getSimulationTimeseriesPathCandidates = (season) => [
-    ...getCasePathCandidates(season, "base_case", "temperature_timeseries.json"),
-    `./ca_results/${season}/temperature_timeseries.json`
+    ...getCasePathCandidates(
+      season,
+      "base_case",
+      "temperature_timeseries.json",
+    ),
+    `./ca_results/${season}/temperature_timeseries.json`,
   ];
 
   const formatSimulationTimestamp = (date) => {
     const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
     const pad = (n) => String(n).padStart(2, "0");
     return `${days[date.getUTCDay()]} ${months[date.getUTCMonth()]} ${date.getUTCDate()}, ${date.getUTCFullYear()} — ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())} UTC`;
   };
@@ -3372,14 +3985,22 @@
       }
     }
     if (!res) {
-      throw new Error(`Failed to load simulation manifest for ${season} from ${candidates.join(", ")}`);
+      throw new Error(
+        `Failed to load simulation manifest for ${season} from ${candidates.join(", ")}`,
+      );
     }
     const manifest = await res.json();
     manifest.__sourcePath = resolvedPath;
     simulationManifestBySeason.set(season, manifest);
-    if (selectedSimulationSeason === season && currentViewMode === "simulation") {
+    if (
+      selectedSimulationSeason === season &&
+      currentViewMode === "simulation"
+    ) {
       const { start, end } = getSimulationFrameRange();
-      simulationFrameIndex = Math.min(Math.max(simulationFrameIndex, start), end);
+      simulationFrameIndex = Math.min(
+        Math.max(simulationFrameIndex, start),
+        end,
+      );
       updateSimulationSliderBounds();
       if (simulationFrameSlider) {
         simulationFrameSlider.value = String(simulationFrameIndex);
@@ -3398,7 +4019,7 @@
     if (count <= 0) return;
     const { start, end } = getSimulationFrameRange();
     const span = end - start + 1;
-    const offset = ((Math.round(index) - start) % span + span) % span;
+    const offset = (((Math.round(index) - start) % span) + span) % span;
     const i = start + offset;
     simulationFrameIndex = i;
 
@@ -3427,8 +4048,9 @@
       const startMs = Date.parse(manifest.startIso || "2020-01-01T00:00:00Z");
       const stepMs = (manifest.stepMinutes || 60) * 60 * 1000;
       const ts = new Date(startMs + i * stepMs);
-      simulationTimestampElement.querySelector(".simulation-timestamp-text").textContent =
-        formatSimulationTimestamp(ts);
+      simulationTimestampElement.querySelector(
+        ".simulation-timestamp-text",
+      ).textContent = formatSimulationTimestamp(ts);
     }
     if (simulationFrameSlider && simulationFrameSlider.value !== String(i)) {
       simulationFrameSlider.value = String(i);
@@ -3452,7 +4074,8 @@
       if (count <= 0) return;
       const { start, end } = getSimulationFrameRange();
       const span = end - start + 1;
-      const next = start + (((simulationFrameIndex - start + 1) % span + span) % span);
+      const next =
+        start + ((((simulationFrameIndex - start + 1) % span) + span) % span);
       applySimulationFrame(next);
     } catch (err) {
       console.error("simulationTick error", err);
@@ -3483,24 +4106,43 @@
     const SimulationControl = L.Control.extend({
       options: { position: "topleft" },
       onAdd() {
-        const container = L.DomUtil.create("div", "contingency-control simulation-control leaflet-bar");
+        const container = L.DomUtil.create(
+          "div",
+          "contingency-control simulation-control leaflet-bar",
+        );
         simulationControlContainer = container;
         container.style.display = "none";
 
         const panel = L.DomUtil.create("div", "contingency-panel", container);
 
-        const button = L.DomUtil.create("button", "contingency-toggle-btn active", panel);
+        const button = L.DomUtil.create(
+          "button",
+          "contingency-toggle-btn active",
+          panel,
+        );
         button.type = "button";
         button.textContent = "Simulation";
         button.title = "Annual conductor temperature animation";
 
-        const dropdownWrap = L.DomUtil.create("div", "contingency-dropdown-wrap", panel);
+        const dropdownWrap = L.DomUtil.create(
+          "div",
+          "contingency-dropdown-wrap",
+          panel,
+        );
         dropdownWrap.style.display = "block";
 
-        const seasonLabel = L.DomUtil.create("div", "simulation-field-label", dropdownWrap);
+        const seasonLabel = L.DomUtil.create(
+          "div",
+          "simulation-field-label",
+          dropdownWrap,
+        );
         seasonLabel.textContent = "Season";
 
-        const seasonSelect = L.DomUtil.create("select", "contingency-select contingency-season-select", dropdownWrap);
+        const seasonSelect = L.DomUtil.create(
+          "select",
+          "contingency-select contingency-season-select",
+          dropdownWrap,
+        );
         const summerOption = L.DomUtil.create("option", "", seasonSelect);
         summerOption.value = "summer";
         summerOption.textContent = "Summer (peak case)";
@@ -3509,30 +4151,66 @@
         winterOption.textContent = "Winter (peak case)";
         seasonSelect.value = selectedSimulationSeason;
 
-        const scopeLabel = L.DomUtil.create("div", "simulation-field-label", dropdownWrap);
+        const scopeLabel = L.DomUtil.create(
+          "div",
+          "simulation-field-label",
+          dropdownWrap,
+        );
         scopeLabel.textContent = "Range";
 
-        const scopeWrap = L.DomUtil.create("div", "simulation-scope-toggle", dropdownWrap);
-        const yearScopeBtn = L.DomUtil.create("button", "simulation-scope-btn", scopeWrap);
+        const scopeWrap = L.DomUtil.create(
+          "div",
+          "simulation-scope-toggle",
+          dropdownWrap,
+        );
+        const yearScopeBtn = L.DomUtil.create(
+          "button",
+          "simulation-scope-btn",
+          scopeWrap,
+        );
         yearScopeBtn.type = "button";
         yearScopeBtn.textContent = "Full Year";
         yearScopeBtn.classList.toggle("active", simulationScope === "year");
 
-        const monthScopeBtn = L.DomUtil.create("button", "simulation-scope-btn", scopeWrap);
+        const monthScopeBtn = L.DomUtil.create(
+          "button",
+          "simulation-scope-btn",
+          scopeWrap,
+        );
         monthScopeBtn.type = "button";
         monthScopeBtn.textContent = "By Month";
         monthScopeBtn.classList.toggle("active", simulationScope === "month");
 
-        const monthLabel = L.DomUtil.create("div", "simulation-field-label", dropdownWrap);
+        const monthLabel = L.DomUtil.create(
+          "div",
+          "simulation-field-label",
+          dropdownWrap,
+        );
         monthLabel.textContent = "Month";
         monthLabel.style.display = simulationScope === "month" ? "" : "none";
         simulationMonthLabel = monthLabel;
 
-        const monthSelect = L.DomUtil.create("select", "contingency-select", dropdownWrap);
+        const monthSelect = L.DomUtil.create(
+          "select",
+          "contingency-select",
+          dropdownWrap,
+        );
         monthSelect.style.display = simulationScope === "month" ? "" : "none";
         simulationMonthSelect = monthSelect;
-        const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
-          "July", "August", "September", "October", "November", "December"];
+        const MONTH_NAMES = [
+          "January",
+          "February",
+          "March",
+          "April",
+          "May",
+          "June",
+          "July",
+          "August",
+          "September",
+          "October",
+          "November",
+          "December",
+        ];
         MONTH_NAMES.forEach((name, idx) => {
           const o = L.DomUtil.create("option", "", monthSelect);
           o.value = String(idx);
@@ -3540,15 +4218,23 @@
           if (idx === simulationSelectedMonth) o.selected = true;
         });
 
-        const speedLabel = L.DomUtil.create("div", "simulation-field-label", dropdownWrap);
+        const speedLabel = L.DomUtil.create(
+          "div",
+          "simulation-field-label",
+          dropdownWrap,
+        );
         speedLabel.textContent = "Playback Speed";
 
-        const speedSelect = L.DomUtil.create("select", "contingency-select", dropdownWrap);
+        const speedSelect = L.DomUtil.create(
+          "select",
+          "contingency-select",
+          dropdownWrap,
+        );
         [
           { v: 8, t: "Slow (8 fps)" },
           { v: 16, t: "Normal (16 fps)" },
           { v: 24, t: "Fast (24 fps)" },
-          { v: 48, t: "Very Fast (48 fps)" }
+          { v: 48, t: "Very Fast (48 fps)" },
         ].forEach((opt) => {
           const o = L.DomUtil.create("option", "", speedSelect);
           o.value = String(opt.v);
@@ -3556,11 +4242,19 @@
           if (opt.v === simulationFps) o.selected = true;
         });
 
-        const sliderLabel = L.DomUtil.create("div", "simulation-field-label simulation-frame-label", dropdownWrap);
+        const sliderLabel = L.DomUtil.create(
+          "div",
+          "simulation-field-label simulation-frame-label",
+          dropdownWrap,
+        );
         sliderLabel.textContent = "Frame 1 / —";
         simulationFrameLabelElement = sliderLabel;
 
-        const slider = L.DomUtil.create("input", "simulation-frame-slider", dropdownWrap);
+        const slider = L.DomUtil.create(
+          "input",
+          "simulation-frame-slider",
+          dropdownWrap,
+        );
         slider.type = "range";
         slider.min = "0";
         slider.max = "0";
@@ -3568,14 +4262,26 @@
         slider.value = "0";
         simulationFrameSlider = slider;
 
-        const actionsCard = L.DomUtil.create("div", "control-actions-card simulation-actions", dropdownWrap);
+        const actionsCard = L.DomUtil.create(
+          "div",
+          "control-actions-card simulation-actions",
+          dropdownWrap,
+        );
 
-        const playBtn = L.DomUtil.create("button", "simulation-run-btn", actionsCard);
+        const playBtn = L.DomUtil.create(
+          "button",
+          "simulation-run-btn",
+          actionsCard,
+        );
         playBtn.type = "button";
         playBtn.textContent = "▶ Run";
         simulationPlayPauseButton = playBtn;
 
-        const resetBtn = L.DomUtil.create("button", "simulation-stop-btn", actionsCard);
+        const resetBtn = L.DomUtil.create(
+          "button",
+          "simulation-stop-btn",
+          actionsCard,
+        );
         resetBtn.type = "button";
         resetBtn.textContent = "⏹ Reset";
 
@@ -3603,8 +4309,10 @@
           yearScopeBtn.classList.toggle("active", simulationScope === "year");
           monthScopeBtn.classList.toggle("active", simulationScope === "month");
           const showMonth = simulationScope === "month";
-          if (simulationMonthLabel) simulationMonthLabel.style.display = showMonth ? "" : "none";
-          if (simulationMonthSelect) simulationMonthSelect.style.display = showMonth ? "" : "none";
+          if (simulationMonthLabel)
+            simulationMonthLabel.style.display = showMonth ? "" : "none";
+          if (simulationMonthSelect)
+            simulationMonthSelect.style.display = showMonth ? "" : "none";
           stopSimulationLoop();
           updateSimulationSliderBounds();
           const { start } = getSimulationFrameRange();
@@ -3667,7 +4375,7 @@
         L.DomEvent.disableClickPropagation(container);
         L.DomEvent.disableScrollPropagation(container);
         return container;
-      }
+      },
     });
 
     map.addControl(new SimulationControl());
@@ -3676,15 +4384,28 @@
     const banner = document.createElement("div");
     banner.className = "simulation-timestamp-banner";
     banner.style.display = "none";
-    banner.innerHTML = '<span class="simulation-timestamp-label">Conductor Temperature</span>'
-      + '<span class="simulation-timestamp-text">—</span>';
+    banner.innerHTML =
+      '<span class="simulation-timestamp-label">Conductor Temperature</span>' +
+      '<span class="simulation-timestamp-text">—</span>';
     map.getContainer().appendChild(banner);
     simulationTimestampElement = banner;
   };
 
   const categoryPalette = [
-    "#d62728", "#1f77b4", "#2ca02c", "#ff7f0e", "#9467bd", "#8c564b", "#e377c2",
-    "#17becf", "#bcbd22", "#7f7f7f", "#1b9e77", "#e7298a", "#66a61e", "#e6ab02"
+    "#d62728",
+    "#1f77b4",
+    "#2ca02c",
+    "#ff7f0e",
+    "#9467bd",
+    "#8c564b",
+    "#e377c2",
+    "#17becf",
+    "#bcbd22",
+    "#7f7f7f",
+    "#1b9e77",
+    "#e7298a",
+    "#66a61e",
+    "#e6ab02",
   ];
 
   const hashString = (textValue) => {
@@ -3702,7 +4423,12 @@
     }
 
     const [p0, p1] = coords;
-    if (!Array.isArray(p0) || !Array.isArray(p1) || p0.length < 2 || p1.length < 2) {
+    if (
+      !Array.isArray(p0) ||
+      !Array.isArray(p1) ||
+      p0.length < 2 ||
+      p1.length < 2
+    ) {
       return coords;
     }
 
@@ -3738,7 +4464,9 @@
     return out;
   };
 
-  const cross = (origin, a, b) => ((a[0] - origin[0]) * (b[1] - origin[1])) - ((a[1] - origin[1]) * (b[0] - origin[0]));
+  const cross = (origin, a, b) =>
+    (a[0] - origin[0]) * (b[1] - origin[1]) -
+    (a[1] - origin[1]) * (b[0] - origin[0]);
 
   const convexHull = (points) => {
     if (!Array.isArray(points) || points.length < 3) {
@@ -3751,7 +4479,10 @@
 
     const lower = [];
     for (const point of sorted) {
-      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) {
+      while (
+        lower.length >= 2 &&
+        cross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0
+      ) {
         lower.pop();
       }
       lower.push(point);
@@ -3760,7 +4491,10 @@
     const upper = [];
     for (let i = sorted.length - 1; i >= 0; i -= 1) {
       const point = sorted[i];
-      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) {
+      while (
+        upper.length >= 2 &&
+        cross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0
+      ) {
         upper.pop();
       }
       upper.push(point);
@@ -3796,7 +4530,9 @@
   };
 
   const readGeoJson = async (name) => {
-    const response = await fetch(`${geojsonBasePath}/${name}.geojson`, { cache: "no-cache" });
+    const response = await fetch(`${geojsonBasePath}/${name}.geojson`, {
+      cache: "no-cache",
+    });
     if (!response.ok) {
       throw new Error(`Failed to load ${name}.geojson (${response.status})`);
     }
@@ -3817,7 +4553,9 @@
           if (window.Plotly) {
             resolve(window.Plotly);
           } else {
-            reject(new Error("Plotly loaded but window.Plotly is unavailable."));
+            reject(
+              new Error("Plotly loaded but window.Plotly is unavailable."),
+            );
           }
         };
         script.onerror = () => {
@@ -3895,21 +4633,25 @@
       const renderTable = () => {
         const filter = searchInput.value.trim().toLowerCase();
         const filtered = filter
-          ? currentRows.filter((row) => row.some((cell) => String(cell).toLowerCase().includes(filter)))
+          ? currentRows.filter((row) =>
+              row.some((cell) => String(cell).toLowerCase().includes(filter)),
+            )
           : currentRows;
 
-        const sorted = sortCol >= 0
-          ? filtered.slice().sort((a, b) => {
-              const va = a[sortCol];
-              const vb = b[sortCol];
-              const na = Number(va);
-              const nb = Number(vb);
-              const cmp = Number.isFinite(na) && Number.isFinite(nb)
-                ? na - nb
-                : String(va).localeCompare(String(vb));
-              return sortAsc ? cmp : -cmp;
-            })
-          : filtered;
+        const sorted =
+          sortCol >= 0
+            ? filtered.slice().sort((a, b) => {
+                const va = a[sortCol];
+                const vb = b[sortCol];
+                const na = Number(va);
+                const nb = Number(vb);
+                const cmp =
+                  Number.isFinite(na) && Number.isFinite(nb)
+                    ? na - nb
+                    : String(va).localeCompare(String(vb));
+                return sortAsc ? cmp : -cmp;
+              })
+            : filtered;
 
         rowCountEl.textContent = `${sorted.length} row${sorted.length !== 1 ? "s" : ""}`;
         tableWrap.innerHTML = "";
@@ -4001,7 +4743,9 @@
         sortAsc = true;
         searchInput.value = "";
         colWidths = {};
-        tabDefs.forEach(({ key }) => tabBtns[key].classList.toggle("active", key === tab));
+        tabDefs.forEach(({ key }) =>
+          tabBtns[key].classList.toggle("active", key === tab),
+        );
         const data = getTabDataFn(tab);
         currentHeaders = data.headers;
         currentRows = data.rows;
@@ -4012,9 +4756,13 @@
         tabBtns[key].addEventListener("click", () => switchTab(key));
       });
       searchInput.addEventListener("input", () => renderTable());
-      closeBtn.addEventListener("click", () => { overlay.style.display = "none"; });
+      closeBtn.addEventListener("click", () => {
+        overlay.style.display = "none";
+      });
 
-      overlay.addEventListener("wheel", (e) => e.stopPropagation(), { passive: true });
+      overlay.addEventListener("wheel", (e) => e.stopPropagation(), {
+        passive: true,
+      });
       overlay.addEventListener("dblclick", (e) => e.stopPropagation());
 
       const resizeHandle = document.createElement("div");
@@ -4073,20 +4821,42 @@
           overlay.style.top = "52px";
           switchTab(tab || activeTab);
         },
-        hide() { overlay.style.display = "none"; },
+        hide() {
+          overlay.style.display = "none";
+        },
         refresh() {
           if (overlay.style.display !== "none") switchTab(activeTab);
-        }
+        },
       };
     };
 
-    const fmt2 = (v) => { const n = Number(v); return Number.isFinite(n) ? n.toFixed(2) : (v || "N/A"); };
-    const fmt1 = (v) => { const n = Number(v); return Number.isFinite(n) ? n.toFixed(1) : (v || "N/A"); };
-    const fmt4 = (v) => { const n = Number(v); return Number.isFinite(n) ? n.toFixed(4) : (v || "N/A"); };
+    const fmt2 = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n.toFixed(2) : v || "N/A";
+    };
+    const fmt1 = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n.toFixed(1) : v || "N/A";
+    };
+    const fmt4 = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n.toFixed(4) : v || "N/A";
+    };
 
     const getTabData = (tab) => {
       if (tab === "lines") {
-        const headers = ["From Bus", "To Bus", "CKT", "Contingency", "Pij (MW)", "Qij (MVAr)", "Rate A (MVA)", "Loading (%)", "Violation", "Converged"];
+        const headers = [
+          "From Bus",
+          "To Bus",
+          "CKT",
+          "Contingency",
+          "Pij (MW)",
+          "Qij (MVAr)",
+          "Rate A (MVA)",
+          "Loading (%)",
+          "Violation",
+          "Converged",
+        ];
         const rows = Object.entries(activeFlowRowsByUid).map(([uid, r]) => [
           r.__fromBus || r["FromBus#"] || "",
           r.__toBus || r["ToBus#"] || "",
@@ -4097,24 +4867,42 @@
           fmt1(r.RateA),
           fmt1(r["Loading_%"]),
           r.Violation || "N/A",
-          r.Converged || "N/A"
+          r.Converged || "N/A",
         ]);
         return { headers, rows };
       }
       if (tab === "buses") {
-        const headers = ["Bus #", "Name", "Contingency", "Volt (p.u.)", "Angle (deg)", "Violation"];
+        const headers = [
+          "Bus #",
+          "Name",
+          "Contingency",
+          "Volt (p.u.)",
+          "Angle (deg)",
+          "Violation",
+        ];
         const rows = Object.values(activeBusRowsByBusId).map((r) => [
           r.__busId || r["Bus#"] || "",
           (r.Name || "").trim(),
           r.__contingency || "",
           fmt4(r["Volt(pu)"]),
           fmt2(r["Angle(deg)"]),
-          r.Violation || "N/A"
+          r.Violation || "N/A",
         ]);
         return { headers, rows };
       }
       // gens
-      const headers = ["Bus #", "Machine ID", "Contingency", "Pg (MW)", "Qg (MVAr)", "PgMax (MW)", "PgMin (MW)", "QgMax (MVAr)", "QgMin (MVAr)", "Violation"];
+      const headers = [
+        "Bus #",
+        "Machine ID",
+        "Contingency",
+        "Pg (MW)",
+        "Qg (MVAr)",
+        "PgMax (MW)",
+        "PgMin (MW)",
+        "QgMax (MVAr)",
+        "QgMin (MVAr)",
+        "Violation",
+      ];
       const rows = Object.values(activeGenRowsByBusAndMachine).map((r) => [
         r.__busId || "",
         r.MachineID || "",
@@ -4125,7 +4913,7 @@
         fmt2(r["PgMin(MW)"]),
         fmt2(r["QgMax(MVAr)"]),
         fmt2(r["QgMin(MVAr)"]),
-        r.Violation || "N/A"
+        r.Violation || "N/A",
       ]);
       return { headers, rows };
     };
@@ -4133,7 +4921,7 @@
     return makePanel("Contingency Analysis Results", getTabData, [
       { key: "lines", label: "Lines" },
       { key: "buses", label: "Buses" },
-      { key: "gens", label: "Generators" }
+      { key: "gens", label: "Generators" },
     ]);
   };
 
@@ -4166,7 +4954,7 @@
     const tabDefs = [
       { key: "lines", label: "Lines" },
       { key: "buses", label: "Buses" },
-      { key: "gens", label: "Generators" }
+      { key: "gens", label: "Generators" },
     ];
     let activeTab = "lines";
     const tabBtns = {};
@@ -4206,21 +4994,25 @@
     const renderTable = () => {
       const filter = searchInput.value.trim().toLowerCase();
       const filtered = filter
-        ? currentRows.filter((row) => row.some((cell) => String(cell).toLowerCase().includes(filter)))
+        ? currentRows.filter((row) =>
+            row.some((cell) => String(cell).toLowerCase().includes(filter)),
+          )
         : currentRows;
 
-      const sorted = sortCol >= 0
-        ? filtered.slice().sort((a, b) => {
-            const va = a[sortCol];
-            const vb = b[sortCol];
-            const na = Number(va);
-            const nb = Number(vb);
-            const cmp = Number.isFinite(na) && Number.isFinite(nb)
-              ? na - nb
-              : String(va).localeCompare(String(vb));
-            return sortAsc ? cmp : -cmp;
-          })
-        : filtered;
+      const sorted =
+        sortCol >= 0
+          ? filtered.slice().sort((a, b) => {
+              const va = a[sortCol];
+              const vb = b[sortCol];
+              const na = Number(va);
+              const nb = Number(vb);
+              const cmp =
+                Number.isFinite(na) && Number.isFinite(nb)
+                  ? na - nb
+                  : String(va).localeCompare(String(vb));
+              return sortAsc ? cmp : -cmp;
+            })
+          : filtered;
 
       rowCountEl.textContent = `${sorted.length} row${sorted.length !== 1 ? "s" : ""}`;
       tableWrap.innerHTML = "";
@@ -4310,22 +5102,31 @@
 
     const fmt2 = (v) => {
       const n = Number(v);
-      return Number.isFinite(n) ? n.toFixed(2) : (v || "N/A");
+      return Number.isFinite(n) ? n.toFixed(2) : v || "N/A";
     };
 
     const fmt1 = (v) => {
       const n = Number(v);
-      return Number.isFinite(n) ? n.toFixed(1) : (v || "N/A");
+      return Number.isFinite(n) ? n.toFixed(1) : v || "N/A";
     };
 
     const fmt4 = (v) => {
       const n = Number(v);
-      return Number.isFinite(n) ? n.toFixed(4) : (v || "N/A");
+      return Number.isFinite(n) ? n.toFixed(4) : v || "N/A";
     };
 
     const getTabData = (tab) => {
       if (tab === "lines") {
-        const headers = ["From Bus", "To Bus", "CKT", "Pij (MW)", "Qij (MVAr)", "Sij (MVA)", "Rate A (MVA)", "Loading (%)"];
+        const headers = [
+          "From Bus",
+          "To Bus",
+          "CKT",
+          "Pij (MW)",
+          "Qij (MVAr)",
+          "Sij (MVA)",
+          "Rate A (MVA)",
+          "Loading (%)",
+        ];
         const rows = Object.values(baseCaseFlowRowsByUid).map((r) => [
           r.__fromBus || r["FromBus#"] || "",
           r.__toBus || r["ToBus#"] || "",
@@ -4334,7 +5135,7 @@
           fmt2(r["Qij(MVAr)"]),
           fmt2(r["Sij(MVA)"]),
           fmt1(r.RateA),
-          fmt1(r["Loading_%"])
+          fmt1(r["Loading_%"]),
         ]);
         return { headers, rows };
       }
@@ -4345,13 +5146,22 @@
           r.__busId || r["Bus#"] || "",
           (r.Name || "").trim(),
           fmt4(r["Volt(pu)"]),
-          fmt2(r["Angle(deg)"])
+          fmt2(r["Angle(deg)"]),
         ]);
         return { headers, rows };
       }
 
       // gens
-      const headers = ["Bus #", "Machine ID", "Pg (MW)", "Qg (MVAr)", "PgMax (MW)", "PgMin (MW)", "QgMax (MVAr)", "QgMin (MVAr)"];
+      const headers = [
+        "Bus #",
+        "Machine ID",
+        "Pg (MW)",
+        "Qg (MVAr)",
+        "PgMax (MW)",
+        "PgMin (MW)",
+        "QgMax (MVAr)",
+        "QgMin (MVAr)",
+      ];
       const rows = Object.values(baseCaseGenRowsByBusAndMachine).map((r) => [
         r.__busId || "",
         r.MachineID || "",
@@ -4360,7 +5170,7 @@
         fmt2(r["PgMax(MW)"]),
         fmt2(r["PgMin(MW)"]),
         fmt2(r["QgMax(MVAr)"]),
-        fmt2(r["QgMin(MVAr)"])
+        fmt2(r["QgMin(MVAr)"]),
       ]);
       return { headers, rows };
     };
@@ -4371,7 +5181,9 @@
       sortAsc = true;
       searchInput.value = "";
       colWidths = {};
-      tabDefs.forEach(({ key }) => tabBtns[key].classList.toggle("active", key === tab));
+      tabDefs.forEach(({ key }) =>
+        tabBtns[key].classList.toggle("active", key === tab),
+      );
       const data = getTabData(tab);
       currentHeaders = data.headers;
       currentRows = data.rows;
@@ -4388,7 +5200,9 @@
       overlay.style.display = "none";
     });
 
-    overlay.addEventListener("wheel", (e) => e.stopPropagation(), { passive: true });
+    overlay.addEventListener("wheel", (e) => e.stopPropagation(), {
+      passive: true,
+    });
     overlay.addEventListener("dblclick", (e) => e.stopPropagation());
 
     // Resize grip
@@ -4468,7 +5282,7 @@
         if (overlay.style.display !== "none") {
           switchTab(activeTab);
         }
-      }
+      },
     };
   };
 
@@ -4505,9 +5319,21 @@
         xLabel: "Bus #",
         itemLabelPlural: "buses",
         metrics: [
-          { key: "busVoltage", label: "Voltage", yLabel: "Voltage (p.u.)", primaryColor: "#2563eb", accentColor: "#10b981" },
-          { key: "busAngle", label: "Angle", yLabel: "Angle (deg)", primaryColor: "#f97316", accentColor: "#f59e0b" }
-        ]
+          {
+            key: "busVoltage",
+            label: "Voltage",
+            yLabel: "Voltage (p.u.)",
+            primaryColor: "#2563eb",
+            accentColor: "#10b981",
+          },
+          {
+            key: "busAngle",
+            label: "Angle",
+            yLabel: "Angle (deg)",
+            primaryColor: "#f97316",
+            accentColor: "#f59e0b",
+          },
+        ],
       },
       {
         key: "lines",
@@ -4515,10 +5341,28 @@
         xLabel: "Line (From-To CKT)",
         itemLabelPlural: "lines",
         metrics: [
-          { key: "lineLoading", label: "Loading", yLabel: "Loading (%)", primaryColor: "#dc2626", accentColor: "#f97316" },
-          { key: "lineActiveFlow", label: "Active Flow From-To", yLabel: "Active Flow i-j (MW)", primaryColor: "#7c3aed", accentColor: "#a855f7" },
-          { key: "lineReactiveFlow", label: "Reactive Flow From-To", yLabel: "Reactive Flow i-j (MVAr)", primaryColor: "#0891b2", accentColor: "#06b6d4" }
-        ]
+          {
+            key: "lineLoading",
+            label: "Loading",
+            yLabel: "Loading (%)",
+            primaryColor: "#dc2626",
+            accentColor: "#f97316",
+          },
+          {
+            key: "lineActiveFlow",
+            label: "Active Flow From-To",
+            yLabel: "Active Flow i-j (MW)",
+            primaryColor: "#7c3aed",
+            accentColor: "#a855f7",
+          },
+          {
+            key: "lineReactiveFlow",
+            label: "Reactive Flow From-To",
+            yLabel: "Reactive Flow i-j (MVAr)",
+            primaryColor: "#0891b2",
+            accentColor: "#06b6d4",
+          },
+        ],
       },
       {
         key: "generators",
@@ -4526,10 +5370,22 @@
         xLabel: "Generator (Bus|Machine)",
         itemLabelPlural: "generators",
         metrics: [
-          { key: "genActive", label: "Active Power", yLabel: "Active Power (MW)", primaryColor: "#2563eb", accentColor: "#3b82f6" },
-          { key: "genReactive", label: "Reactive Power", yLabel: "Reactive Power (MVAr)", primaryColor: "#0f766e", accentColor: "#14b8a6" }
-        ]
-      }
+          {
+            key: "genActive",
+            label: "Active Power",
+            yLabel: "Active Power (MW)",
+            primaryColor: "#2563eb",
+            accentColor: "#3b82f6",
+          },
+          {
+            key: "genReactive",
+            label: "Reactive Power",
+            yLabel: "Reactive Power (MVAr)",
+            primaryColor: "#0f766e",
+            accentColor: "#14b8a6",
+          },
+        ],
+      },
     ];
 
     const tabByKey = Object.fromEntries(tabDefs.map((tab) => [tab.key, tab]));
@@ -4544,7 +5400,7 @@
     const activeMetricByTab = {
       buses: "busVoltage",
       lines: "lineLoading",
-      generators: "genActive"
+      generators: "genActive",
     };
 
     const tabBtns = {};
@@ -4606,43 +5462,52 @@
       chartEl.style.display = "block";
     };
 
-    const sortedBusRows = () => Object.values(baseCaseBusRowsByBusId)
-      .slice()
-      .sort((a, b) => {
-        const aNum = Number(a.__busId);
-        const bNum = Number(b.__busId);
-        if (Number.isFinite(aNum) && Number.isFinite(bNum)) {
-          return aNum - bNum;
-        }
-        return String(a.__busId || "").localeCompare(String(b.__busId || ""));
-      });
+    const sortedBusRows = () =>
+      Object.values(baseCaseBusRowsByBusId)
+        .slice()
+        .sort((a, b) => {
+          const aNum = Number(a.__busId);
+          const bNum = Number(b.__busId);
+          if (Number.isFinite(aNum) && Number.isFinite(bNum)) {
+            return aNum - bNum;
+          }
+          return String(a.__busId || "").localeCompare(String(b.__busId || ""));
+        });
 
-    const sortedLineRows = () => Object.values(baseCaseFlowRowsByUid)
-      .slice()
-      .sort((a, b) => {
-        const aFrom = Number(a.__fromBus);
-        const bFrom = Number(b.__fromBus);
-        if (Number.isFinite(aFrom) && Number.isFinite(bFrom) && aFrom !== bFrom) {
-          return aFrom - bFrom;
-        }
-        const aTo = Number(a.__toBus);
-        const bTo = Number(b.__toBus);
-        if (Number.isFinite(aTo) && Number.isFinite(bTo) && aTo !== bTo) {
-          return aTo - bTo;
-        }
-        return String(a.__ckt || "").localeCompare(String(b.__ckt || ""));
-      });
+    const sortedLineRows = () =>
+      Object.values(baseCaseFlowRowsByUid)
+        .slice()
+        .sort((a, b) => {
+          const aFrom = Number(a.__fromBus);
+          const bFrom = Number(b.__fromBus);
+          if (
+            Number.isFinite(aFrom) &&
+            Number.isFinite(bFrom) &&
+            aFrom !== bFrom
+          ) {
+            return aFrom - bFrom;
+          }
+          const aTo = Number(a.__toBus);
+          const bTo = Number(b.__toBus);
+          if (Number.isFinite(aTo) && Number.isFinite(bTo) && aTo !== bTo) {
+            return aTo - bTo;
+          }
+          return String(a.__ckt || "").localeCompare(String(b.__ckt || ""));
+        });
 
-    const sortedGeneratorRows = () => Object.values(baseCaseGenRowsByBusAndMachine)
-      .slice()
-      .sort((a, b) => {
-        const aBus = Number(a.__busId);
-        const bBus = Number(b.__busId);
-        if (Number.isFinite(aBus) && Number.isFinite(bBus) && aBus !== bBus) {
-          return aBus - bBus;
-        }
-        return String(a.MachineID || "").localeCompare(String(b.MachineID || ""));
-      });
+    const sortedGeneratorRows = () =>
+      Object.values(baseCaseGenRowsByBusAndMachine)
+        .slice()
+        .sort((a, b) => {
+          const aBus = Number(a.__busId);
+          const bBus = Number(b.__busId);
+          if (Number.isFinite(aBus) && Number.isFinite(bBus) && aBus !== bBus) {
+            return aBus - bBus;
+          }
+          return String(a.MachineID || "").localeCompare(
+            String(b.MachineID || ""),
+          );
+        });
 
     const getMetricValue = (row, metricKey) => {
       if (metricKey === "busVoltage") {
@@ -4700,7 +5565,9 @@
         const name = String(row.Name || "").trim() || "N/A";
         const voltage = Number(row["Volt(pu)"]);
         const angle = Number(row["Angle(deg)"]);
-        const voltageText = Number.isFinite(voltage) ? voltage.toFixed(4) : "N/A";
+        const voltageText = Number.isFinite(voltage)
+          ? voltage.toFixed(4)
+          : "N/A";
         const angleText = Number.isFinite(angle) ? angle.toFixed(2) : "N/A";
         return `Bus: ${busId}<br>Name: ${esc(name)}<br>Voltage: ${voltageText} p.u.<br>Angle: ${angleText} deg`;
       }
@@ -4732,7 +5599,11 @@
         metricSelect.appendChild(option);
       });
 
-      if (!tab.metrics.some((metric) => metric.key === activeMetricByTab[activeTab])) {
+      if (
+        !tab.metrics.some(
+          (metric) => metric.key === activeMetricByTab[activeTab],
+        )
+      ) {
         activeMetricByTab[activeTab] = tab.metrics[0].key;
       }
       metricSelect.value = activeMetricByTab[activeTab];
@@ -4743,7 +5614,9 @@
       const metric = metricByKey[activeMetricByTab[activeTab]];
       const rows = getRowsByTab(activeTab);
 
-      const seriesRows = rows.filter((row) => Number.isFinite(getMetricValue(row, metric.key)));
+      const seriesRows = rows.filter((row) =>
+        Number.isFinite(getMetricValue(row, metric.key)),
+      );
       const x = seriesRows.map((row) => getXForRow(activeTab, row));
       const y = seriesRows.map((row) => getMetricValue(row, metric.key));
       const hover = seriesRows.map((row) => getHoverText(activeTab, row));
@@ -4760,7 +5633,7 @@
         itemLabelPlural: tab.itemLabelPlural,
         metricKey: metric.key,
         metricPrimaryColor: metric.primaryColor,
-        metricAccentColor: metric.accentColor
+        metricAccentColor: metric.accentColor,
       };
     };
 
@@ -4779,7 +5652,9 @@
         } catch (_error) {
           // Ignore purge errors.
         }
-        showEmpty(`No values available for ${selectedBaseCaseSeason} ${selectedBaseCaseSolver.toUpperCase()} (${payload.yLabel}).`);
+        showEmpty(
+          `No values available for ${selectedBaseCaseSeason} ${selectedBaseCaseSolver.toUpperCase()} (${payload.yLabel}).`,
+        );
         return;
       }
 
@@ -4806,18 +5681,18 @@
         text: payload.hover,
         marker: {
           size: 6,
-          color: payload.metricAccentColor
+          color: payload.metricAccentColor,
         },
         line: {
           width: 1.6,
-          color: payload.metricPrimaryColor
-        }
+          color: payload.metricPrimaryColor,
+        },
       };
 
       const layout = {
         title: {
           text: payload.title,
-          font: { size: 14 }
+          font: { size: 14 },
         },
         margin: { l: 62, r: 18, t: 44, b: 62 },
         xaxis: {
@@ -4826,25 +5701,26 @@
           automargin: true,
           tickangle: -45,
           color: dark ? "#e5e7eb" : "#1f2937",
-          gridcolor: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"
+          gridcolor: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
         },
         yaxis: {
           title: payload.yLabel,
           automargin: true,
           color: dark ? "#e5e7eb" : "#1f2937",
-          gridcolor: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"
+          gridcolor: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
         },
         plot_bgcolor: dark ? "#0f172a" : "#ffffff",
         paper_bgcolor: dark ? "#1b2230" : "#ffffff",
         font: {
           color: dark ? "#e5e7eb" : "#111827",
-          family: "ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif"
+          family:
+            "ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif",
         },
         hoverlabel: {
           bgcolor: dark ? "#0f172a" : "#ffffff",
           bordercolor: dark ? "#334155" : "#cbd5e1",
-          font: { color: dark ? "#e5e7eb" : "#0f172a" }
-        }
+          font: { color: dark ? "#e5e7eb" : "#0f172a" },
+        },
       };
 
       if (payload.metricKey === "busVoltage") {
@@ -4867,8 +5743,8 @@
             line: {
               color: dark ? "#fca5a5" : "#dc2626",
               width: 1.6,
-              dash: "dash"
-            }
+              dash: "dash",
+            },
           },
           {
             type: "line",
@@ -4881,9 +5757,9 @@
             line: {
               color: dark ? "#fdba74" : "#ea580c",
               width: 1.6,
-              dash: "dash"
-            }
-          }
+              dash: "dash",
+            },
+          },
         ];
 
         layout.annotations = [
@@ -4896,13 +5772,15 @@
             yanchor: "bottom",
             text: `Vmax ${voltageUpperLimit.toFixed(2)}`,
             showarrow: false,
-            bgcolor: dark ? "rgba(127, 29, 29, 0.7)" : "rgba(254, 226, 226, 0.88)",
+            bgcolor: dark
+              ? "rgba(127, 29, 29, 0.7)"
+              : "rgba(254, 226, 226, 0.88)",
             bordercolor: dark ? "#ef4444" : "#dc2626",
             borderwidth: 1,
             font: {
               size: 11,
-              color: dark ? "#fee2e2" : "#7f1d1d"
-            }
+              color: dark ? "#fee2e2" : "#7f1d1d",
+            },
           },
           {
             xref: "paper",
@@ -4913,14 +5791,16 @@
             yanchor: "top",
             text: `Vmin ${voltageLowerLimit.toFixed(2)}`,
             showarrow: false,
-            bgcolor: dark ? "rgba(124, 45, 18, 0.72)" : "rgba(255, 237, 213, 0.9)",
+            bgcolor: dark
+              ? "rgba(124, 45, 18, 0.72)"
+              : "rgba(255, 237, 213, 0.9)",
             bordercolor: dark ? "#f97316" : "#ea580c",
             borderwidth: 1,
             font: {
               size: 11,
-              color: dark ? "#ffedd5" : "#7c2d12"
-            }
-          }
+              color: dark ? "#ffedd5" : "#7c2d12",
+            },
+          },
         ];
       }
 
@@ -4929,8 +5809,8 @@
         displaylogo: false,
         modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"],
         toImageButtonOptions: {
-          filename: `base_case_${activeTab}_${payload.metricKey}_${selectedBaseCaseSeason}_${selectedBaseCaseSolver}`
-        }
+          filename: `base_case_${activeTab}_${payload.metricKey}_${selectedBaseCaseSeason}_${selectedBaseCaseSolver}`,
+        },
       };
 
       await window.Plotly.react(chartEl, [trace], layout, config);
@@ -4959,7 +5839,9 @@
       overlay.style.display = "none";
     });
 
-    overlay.addEventListener("wheel", (e) => e.stopPropagation(), { passive: true });
+    overlay.addEventListener("wheel", (e) => e.stopPropagation(), {
+      passive: true,
+    });
     overlay.addEventListener("dblclick", (e) => e.stopPropagation());
 
     const resizeHandle = document.createElement("div");
@@ -5040,7 +5922,7 @@
           populateMetricOptions();
           renderPlot();
         }
-      }
+      },
     };
   };
 
@@ -5077,9 +5959,21 @@
         xLabel: "Bus #",
         itemLabelPlural: "buses",
         metrics: [
-          { key: "busVoltage", label: "Voltage", yLabel: "Voltage (p.u.)", primaryColor: "#2563eb", accentColor: "#10b981" },
-          { key: "busAngle", label: "Angle", yLabel: "Angle (deg)", primaryColor: "#f97316", accentColor: "#f59e0b" }
-        ]
+          {
+            key: "busVoltage",
+            label: "Voltage",
+            yLabel: "Voltage (p.u.)",
+            primaryColor: "#2563eb",
+            accentColor: "#10b981",
+          },
+          {
+            key: "busAngle",
+            label: "Angle",
+            yLabel: "Angle (deg)",
+            primaryColor: "#f97316",
+            accentColor: "#f59e0b",
+          },
+        ],
       },
       {
         key: "lines",
@@ -5087,10 +5981,28 @@
         xLabel: "Line (From-To CKT)",
         itemLabelPlural: "lines",
         metrics: [
-          { key: "lineLoading", label: "Loading", yLabel: "Loading (%)", primaryColor: "#dc2626", accentColor: "#f97316" },
-          { key: "lineActiveFlow", label: "Active Flow From-To", yLabel: "Active Flow i-j (MW)", primaryColor: "#7c3aed", accentColor: "#a855f7" },
-          { key: "lineReactiveFlow", label: "Reactive Flow From-To", yLabel: "Reactive Flow i-j (MVAr)", primaryColor: "#0891b2", accentColor: "#06b6d4" }
-        ]
+          {
+            key: "lineLoading",
+            label: "Loading",
+            yLabel: "Loading (%)",
+            primaryColor: "#dc2626",
+            accentColor: "#f97316",
+          },
+          {
+            key: "lineActiveFlow",
+            label: "Active Flow From-To",
+            yLabel: "Active Flow i-j (MW)",
+            primaryColor: "#7c3aed",
+            accentColor: "#a855f7",
+          },
+          {
+            key: "lineReactiveFlow",
+            label: "Reactive Flow From-To",
+            yLabel: "Reactive Flow i-j (MVAr)",
+            primaryColor: "#0891b2",
+            accentColor: "#06b6d4",
+          },
+        ],
       },
       {
         key: "generators",
@@ -5098,10 +6010,22 @@
         xLabel: "Generator (Bus|Machine)",
         itemLabelPlural: "generators",
         metrics: [
-          { key: "genActive", label: "Active Power", yLabel: "Active Power (MW)", primaryColor: "#2563eb", accentColor: "#3b82f6" },
-          { key: "genReactive", label: "Reactive Power", yLabel: "Reactive Power (MVAr)", primaryColor: "#0f766e", accentColor: "#14b8a6" }
-        ]
-      }
+          {
+            key: "genActive",
+            label: "Active Power",
+            yLabel: "Active Power (MW)",
+            primaryColor: "#2563eb",
+            accentColor: "#3b82f6",
+          },
+          {
+            key: "genReactive",
+            label: "Reactive Power",
+            yLabel: "Reactive Power (MVAr)",
+            primaryColor: "#0f766e",
+            accentColor: "#14b8a6",
+          },
+        ],
+      },
     ];
 
     const tabByKey = Object.fromEntries(tabDefs.map((tab) => [tab.key, tab]));
@@ -5116,7 +6040,7 @@
     const activeMetricByTab = {
       buses: "busVoltage",
       lines: "lineLoading",
-      generators: "genActive"
+      generators: "genActive",
     };
 
     const tabBtns = {};
@@ -5178,43 +6102,52 @@
       chartEl.style.display = "block";
     };
 
-    const sortedBusRows = () => Object.values(activeBusRowsByBusId)
-      .slice()
-      .sort((a, b) => {
-        const aNum = Number(a.__busId);
-        const bNum = Number(b.__busId);
-        if (Number.isFinite(aNum) && Number.isFinite(bNum)) {
-          return aNum - bNum;
-        }
-        return String(a.__busId || "").localeCompare(String(b.__busId || ""));
-      });
+    const sortedBusRows = () =>
+      Object.values(activeBusRowsByBusId)
+        .slice()
+        .sort((a, b) => {
+          const aNum = Number(a.__busId);
+          const bNum = Number(b.__busId);
+          if (Number.isFinite(aNum) && Number.isFinite(bNum)) {
+            return aNum - bNum;
+          }
+          return String(a.__busId || "").localeCompare(String(b.__busId || ""));
+        });
 
-    const sortedLineRows = () => Object.values(activeFlowRowsByUid)
-      .slice()
-      .sort((a, b) => {
-        const aFrom = Number(a.__fromBus);
-        const bFrom = Number(b.__fromBus);
-        if (Number.isFinite(aFrom) && Number.isFinite(bFrom) && aFrom !== bFrom) {
-          return aFrom - bFrom;
-        }
-        const aTo = Number(a.__toBus);
-        const bTo = Number(b.__toBus);
-        if (Number.isFinite(aTo) && Number.isFinite(bTo) && aTo !== bTo) {
-          return aTo - bTo;
-        }
-        return String(a.__ckt || "").localeCompare(String(b.__ckt || ""));
-      });
+    const sortedLineRows = () =>
+      Object.values(activeFlowRowsByUid)
+        .slice()
+        .sort((a, b) => {
+          const aFrom = Number(a.__fromBus);
+          const bFrom = Number(b.__fromBus);
+          if (
+            Number.isFinite(aFrom) &&
+            Number.isFinite(bFrom) &&
+            aFrom !== bFrom
+          ) {
+            return aFrom - bFrom;
+          }
+          const aTo = Number(a.__toBus);
+          const bTo = Number(b.__toBus);
+          if (Number.isFinite(aTo) && Number.isFinite(bTo) && aTo !== bTo) {
+            return aTo - bTo;
+          }
+          return String(a.__ckt || "").localeCompare(String(b.__ckt || ""));
+        });
 
-    const sortedGeneratorRows = () => Object.values(activeGenRowsByBusAndMachine)
-      .slice()
-      .sort((a, b) => {
-        const aBus = Number(a.__busId);
-        const bBus = Number(b.__busId);
-        if (Number.isFinite(aBus) && Number.isFinite(bBus) && aBus !== bBus) {
-          return aBus - bBus;
-        }
-        return String(a.MachineID || "").localeCompare(String(b.MachineID || ""));
-      });
+    const sortedGeneratorRows = () =>
+      Object.values(activeGenRowsByBusAndMachine)
+        .slice()
+        .sort((a, b) => {
+          const aBus = Number(a.__busId);
+          const bBus = Number(b.__busId);
+          if (Number.isFinite(aBus) && Number.isFinite(bBus) && aBus !== bBus) {
+            return aBus - bBus;
+          }
+          return String(a.MachineID || "").localeCompare(
+            String(b.MachineID || ""),
+          );
+        });
 
     const getMetricValue = (row, metricKey) => {
       if (metricKey === "busVoltage") {
@@ -5272,7 +6205,9 @@
         const name = String(row.Name || "").trim() || "N/A";
         const voltage = Number(row["Volt(pu)"]);
         const angle = Number(row["Angle(deg)"]);
-        const voltageText = Number.isFinite(voltage) ? voltage.toFixed(4) : "N/A";
+        const voltageText = Number.isFinite(voltage)
+          ? voltage.toFixed(4)
+          : "N/A";
         const angleText = Number.isFinite(angle) ? angle.toFixed(2) : "N/A";
         return `Bus: ${busId}<br>Name: ${esc(name)}<br>Voltage: ${voltageText} p.u.<br>Angle: ${angleText} deg`;
       }
@@ -5304,7 +6239,11 @@
         metricSelect.appendChild(option);
       });
 
-      if (!tab.metrics.some((metric) => metric.key === activeMetricByTab[activeTab])) {
+      if (
+        !tab.metrics.some(
+          (metric) => metric.key === activeMetricByTab[activeTab],
+        )
+      ) {
         activeMetricByTab[activeTab] = tab.metrics[0].key;
       }
       metricSelect.value = activeMetricByTab[activeTab];
@@ -5315,7 +6254,9 @@
       const metric = metricByKey[activeMetricByTab[activeTab]];
       const rows = getRowsByTab(activeTab);
 
-      const seriesRows = rows.filter((row) => Number.isFinite(getMetricValue(row, metric.key)));
+      const seriesRows = rows.filter((row) =>
+        Number.isFinite(getMetricValue(row, metric.key)),
+      );
       const x = seriesRows.map((row) => getXForRow(activeTab, row));
       const y = seriesRows.map((row) => getMetricValue(row, metric.key));
       const hover = seriesRows.map((row) => getHoverText(activeTab, row));
@@ -5338,7 +6279,7 @@
         metricAccentColor: metric.accentColor,
         contingencyLabel,
         seasonLabel,
-        solverLabel
+        solverLabel,
       };
     };
 
@@ -5357,7 +6298,9 @@
         } catch (_error) {
           // Ignore purge errors.
         }
-        showEmpty(`No values available for ${payload.contingencyLabel} (${payload.seasonLabel}, ${payload.solverLabel}, ${payload.yLabel}).`);
+        showEmpty(
+          `No values available for ${payload.contingencyLabel} (${payload.seasonLabel}, ${payload.solverLabel}, ${payload.yLabel}).`,
+        );
         return;
       }
 
@@ -5384,18 +6327,18 @@
         text: payload.hover,
         marker: {
           size: 6,
-          color: payload.metricAccentColor
+          color: payload.metricAccentColor,
         },
         line: {
           width: 1.6,
-          color: payload.metricPrimaryColor
-        }
+          color: payload.metricPrimaryColor,
+        },
       };
 
       const layout = {
         title: {
           text: payload.title,
-          font: { size: 14 }
+          font: { size: 14 },
         },
         margin: { l: 62, r: 18, t: 44, b: 62 },
         xaxis: {
@@ -5404,25 +6347,26 @@
           automargin: true,
           tickangle: -45,
           color: dark ? "#e5e7eb" : "#1f2937",
-          gridcolor: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"
+          gridcolor: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
         },
         yaxis: {
           title: payload.yLabel,
           automargin: true,
           color: dark ? "#e5e7eb" : "#1f2937",
-          gridcolor: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"
+          gridcolor: dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
         },
         plot_bgcolor: dark ? "#0f172a" : "#ffffff",
         paper_bgcolor: dark ? "#1b2230" : "#ffffff",
         font: {
           color: dark ? "#e5e7eb" : "#111827",
-          family: "ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif"
+          family:
+            "ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif",
         },
         hoverlabel: {
           bgcolor: dark ? "#0f172a" : "#ffffff",
           bordercolor: dark ? "#334155" : "#cbd5e1",
-          font: { color: dark ? "#e5e7eb" : "#0f172a" }
-        }
+          font: { color: dark ? "#e5e7eb" : "#0f172a" },
+        },
       };
 
       if (payload.metricKey === "busVoltage") {
@@ -5445,8 +6389,8 @@
             line: {
               color: dark ? "#fca5a5" : "#dc2626",
               width: 1.6,
-              dash: "dash"
-            }
+              dash: "dash",
+            },
           },
           {
             type: "line",
@@ -5459,9 +6403,9 @@
             line: {
               color: dark ? "#fdba74" : "#ea580c",
               width: 1.6,
-              dash: "dash"
-            }
-          }
+              dash: "dash",
+            },
+          },
         ];
 
         layout.annotations = [
@@ -5474,13 +6418,15 @@
             yanchor: "bottom",
             text: `Vmax ${voltageUpperLimit.toFixed(2)}`,
             showarrow: false,
-            bgcolor: dark ? "rgba(127, 29, 29, 0.7)" : "rgba(254, 226, 226, 0.88)",
+            bgcolor: dark
+              ? "rgba(127, 29, 29, 0.7)"
+              : "rgba(254, 226, 226, 0.88)",
             bordercolor: dark ? "#ef4444" : "#dc2626",
             borderwidth: 1,
             font: {
               size: 11,
-              color: dark ? "#fee2e2" : "#7f1d1d"
-            }
+              color: dark ? "#fee2e2" : "#7f1d1d",
+            },
           },
           {
             xref: "paper",
@@ -5491,14 +6437,16 @@
             yanchor: "top",
             text: `Vmin ${voltageLowerLimit.toFixed(2)}`,
             showarrow: false,
-            bgcolor: dark ? "rgba(124, 45, 18, 0.72)" : "rgba(255, 237, 213, 0.9)",
+            bgcolor: dark
+              ? "rgba(124, 45, 18, 0.72)"
+              : "rgba(255, 237, 213, 0.9)",
             bordercolor: dark ? "#f97316" : "#ea580c",
             borderwidth: 1,
             font: {
               size: 11,
-              color: dark ? "#ffedd5" : "#7c2d12"
-            }
-          }
+              color: dark ? "#ffedd5" : "#7c2d12",
+            },
+          },
         ];
       }
 
@@ -5507,8 +6455,8 @@
         displaylogo: false,
         modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"],
         toImageButtonOptions: {
-          filename: `contingency_${activeTab}_${payload.metricKey}_${payload.contingencyLabel}_${payload.seasonLabel}_${selectedContingencySolver}`
-        }
+          filename: `contingency_${activeTab}_${payload.metricKey}_${payload.contingencyLabel}_${payload.seasonLabel}_${selectedContingencySolver}`,
+        },
       };
 
       await window.Plotly.react(chartEl, [trace], layout, config);
@@ -5537,7 +6485,9 @@
       overlay.style.display = "none";
     });
 
-    overlay.addEventListener("wheel", (e) => e.stopPropagation(), { passive: true });
+    overlay.addEventListener("wheel", (e) => e.stopPropagation(), {
+      passive: true,
+    });
     overlay.addEventListener("dblclick", (e) => e.stopPropagation());
 
     const resizeHandle = document.createElement("div");
@@ -5618,18 +6568,19 @@
           populateMetricOptions();
           renderPlot();
         }
-      }
+      },
     };
   };
 
   const initializeMap = async () => {
-    const [busGeo, branchGeo, genGeo, genConnGeo, lineNameRows] = await Promise.all([
-      readGeoJson("bus"),
-      readGeoJson("branch"),
-      readGeoJson("gen"),
-      readGeoJson("gen_conn"),
-      readLineNamesCsv()
-    ]);
+    const [busGeo, branchGeo, genGeo, genConnGeo, lineNameRows] =
+      await Promise.all([
+        readGeoJson("bus"),
+        readGeoJson("branch"),
+        readGeoJson("gen"),
+        readGeoJson("gen_conn"),
+        readLineNamesCsv(),
+      ]);
 
     const lineNameByUid = buildLineNameByUid(branchGeo, lineNameRows);
     const branchMetaByUid = buildBranchMetaByUid(branchGeo);
@@ -5682,7 +6633,10 @@
         if (Number.isFinite(rFactor) && Number.isFinite(baseR)) {
           resistanceValue = baseR * rFactor;
         }
-      } else if (currentViewMode === "contingency" && activeContingencyConverged) {
+      } else if (
+        currentViewMode === "contingency" &&
+        activeContingencyConverged
+      ) {
         const row = activeFlowRowsByUid[uid];
         if (row) tempValue = row[TEMP_COND_COLUMN];
       } else if (currentViewMode === "baseCase") {
@@ -5691,13 +6645,15 @@
       }
       const tempNum = Number(tempValue);
       const tempText = Number.isFinite(tempNum)
-        ? `${tempNum.toFixed(1)} °C / ${(tempNum * 9 / 5 + 32).toFixed(1)} °F`
+        ? `${tempNum.toFixed(1)} °C / ${((tempNum * 9) / 5 + 32).toFixed(1)} °F`
         : "—";
 
-      return `<b>${esc(name)}</b><br>`
-        + `<b>Resistance (R):</b> ${esc(formatNumber(resistanceValue))} Ω<br>`
-        + `<b>Reactance (X):</b> ${esc(formatNumber(props.X))} Ω<br>`
-        + `<b>Conductor Temp:</b> ${esc(tempText)}`;
+      return (
+        `<b>${esc(name)}</b><br>` +
+        `<b>Resistance (R):</b> ${esc(formatNumber(resistanceValue))} Ω<br>` +
+        `<b>Reactance (X):</b> ${esc(formatNumber(props.X))} Ω<br>` +
+        `<b>Conductor Temp:</b> ${esc(tempText)}`
+      );
     };
 
     const refreshOpenLinePopups = () => {
@@ -5707,7 +6663,12 @@
 
       linesLayer.eachLayer((layer) => {
         try {
-          if (!layer || !layer.isPopupOpen || !layer.getPopup || !layer.isPopupOpen()) {
+          if (
+            !layer ||
+            !layer.isPopupOpen ||
+            !layer.getPopup ||
+            !layer.isPopupOpen()
+          ) {
             return;
           }
           const popup = layer.getPopup();
@@ -5729,7 +6690,15 @@
       const busId = normalizeBusValue(props["Bus ID"]);
       const row = activeBusRowsByBusId[busId];
 
-      if (!row || !(currentViewMode === "contingency" && selectedContingencyUid && selectedContingencySeason && activeContingencyConverged)) {
+      if (
+        !row ||
+        !(
+          currentViewMode === "contingency" &&
+          selectedContingencyUid &&
+          selectedContingencySeason &&
+          activeContingencyConverged
+        )
+      ) {
         if (currentViewMode === "baseCase") {
           return baseCaseBusPopupHtml(feature);
         }
@@ -5741,7 +6710,7 @@
         `<b>Bus ID:</b> ${esc(busId)}`,
         `<b>Voltage:</b> ${esc(formatMetric(row["Volt(pu)"], "p.u."))}`,
         `<b>Angle:</b> ${esc(formatMetric(row["Angle(deg)"], "deg"))}`,
-        `<b>Violation:</b> ${esc(String(row.Violation || "N/A"))}`
+        `<b>Violation:</b> ${esc(String(row.Violation || "N/A"))}`,
       ];
 
       return `<b>Substation</b><br>${rows.join("<br>")}`;
@@ -5760,7 +6729,7 @@
         `<b>Substation:</b> ${esc(String(row.Name || "N/A").trim())}`,
         `<b>Bus ID:</b> ${esc(busId)}`,
         `<b>Voltage:</b> ${esc(formatMetric(row["Volt(pu)"], "p.u."))}`,
-        `<b>Angle:</b> ${esc(formatMetric(row["Angle(deg)"], "deg"))}`
+        `<b>Angle:</b> ${esc(formatMetric(row["Angle(deg)"], "deg"))}`,
       ];
 
       return `<b>Substation</b><br>${rows.join("<br>")}`;
@@ -5785,11 +6754,16 @@
         `<b>Rating:</b> ${esc(formatMetric(row.RateA, "MVA"))}`,
         `<b>Active Losses:</b> ${esc(formatMetric(row["Ploss(MW)"], "MW"))}`,
         `<b>Reactive Losses:</b> ${esc(formatMetric(row["Qloss(MVAr)"], "MVAr"))}`,
-        `<b>Loading:</b> ${esc(formatIntegerMetric(row["Loading_%"], "%"))}`
+        `<b>Loading:</b> ${esc(formatIntegerMetric(row["Loading_%"], "%"))}`,
       ];
 
-      if (row[TEMP_COND_COLUMN] != null && String(row[TEMP_COND_COLUMN]).length > 0) {
-        detailRows.push(`<b>Conductor Temp:</b> ${esc(formatMetric(row[TEMP_COND_COLUMN], "°C"))}`);
+      if (
+        row[TEMP_COND_COLUMN] != null &&
+        String(row[TEMP_COND_COLUMN]).length > 0
+      ) {
+        detailRows.push(
+          `<b>Conductor Temp:</b> ${esc(formatMetric(row[TEMP_COND_COLUMN], "°C"))}`,
+        );
       }
 
       return `<b>Line Flow</b><br>${detailRows.join("<br>")}`;
@@ -5801,7 +6775,12 @@
       }
 
       busesLayer.eachLayer((layer) => {
-        if (!layer || !layer.isPopupOpen || !layer.getPopup || !layer.isPopupOpen()) {
+        if (
+          !layer ||
+          !layer.isPopupOpen ||
+          !layer.getPopup ||
+          !layer.isPopupOpen()
+        ) {
           return;
         }
 
@@ -5817,18 +6796,22 @@
     const generatorContingencyRowForFeature = (feature) => {
       const props = (feature && feature.properties) || {};
       const busId = normalizeBusValue(
-        props["Bus ID"]
-          ?? props.BusNumber
-          ?? props["Bus Number"]
-          ?? props["Bus#"]
+        props["Bus ID"] ??
+          props.BusNumber ??
+          props["Bus Number"] ??
+          props["Bus#"],
       );
-      const machineId = normalizeMachineValue(props["Gen ID"] ?? props.MachineID);
+      const machineId = normalizeMachineValue(
+        props["Gen ID"] ?? props.MachineID,
+      );
 
       if (!busId || !machineId) {
         return null;
       }
 
-      const exact = activeGenRowsByBusAndMachine[genBusMachineKey(busId, machineId)] || null;
+      const exact =
+        activeGenRowsByBusAndMachine[genBusMachineKey(busId, machineId)] ||
+        null;
       if (exact) {
         return exact;
       }
@@ -5839,7 +6822,9 @@
       }
 
       const machineLoose = normalizeMachineLoose(machineId);
-      const looseMatch = busCandidates.find((row) => normalizeMachineLoose(row.MachineID) === machineLoose);
+      const looseMatch = busCandidates.find(
+        (row) => normalizeMachineLoose(row.MachineID) === machineLoose,
+      );
       if (looseMatch) {
         return looseMatch;
       }
@@ -5870,10 +6855,11 @@
     };
 
     const generatorPopupHtmlForFeature = (feature) => {
-      const contingencyMode = currentViewMode === "contingency"
-        && selectedContingencyUid
-        && selectedContingencySeason
-        && activeContingencyConverged;
+      const contingencyMode =
+        currentViewMode === "contingency" &&
+        selectedContingencyUid &&
+        selectedContingencySeason &&
+        activeContingencyConverged;
 
       if (contingencyMode) {
         const row = generatorContingencyRowForFeature(feature);
@@ -5884,22 +6870,35 @@
         return baseCaseGeneratorPopupHtml(feature);
       }
 
-      return generatorPropertiesToPopupHtml((feature && feature.properties) || {});
+      return generatorPropertiesToPopupHtml(
+        (feature && feature.properties) || {},
+      );
     };
 
     const baseCaseGeneratorPopupHtml = (feature) => {
       const props = (feature && feature.properties) || {};
-      const busId = normalizeBusValue(props["Bus ID"] ?? props.BusNumber ?? props["Bus#"]);
-      const machineId = normalizeMachineValue(props["Gen ID"] ?? props.MachineID);
+      const busId = normalizeBusValue(
+        props["Bus ID"] ?? props.BusNumber ?? props["Bus#"],
+      );
+      const machineId = normalizeMachineValue(
+        props["Gen ID"] ?? props.MachineID,
+      );
 
       let row = null;
       if (busId && machineId) {
-        row = baseCaseGenRowsByBusAndMachine[genBusMachineKey(busId, machineId)] || null;
+        row =
+          baseCaseGenRowsByBusAndMachine[genBusMachineKey(busId, machineId)] ||
+          null;
         if (!row) {
           const busCandidates = baseCaseGenRowsListByBus[busId] || [];
           if (busCandidates.length) {
             const machineLoose = normalizeMachineLoose(machineId);
-            row = busCandidates.find((r) => normalizeMachineLoose(r.MachineID) === machineLoose) || busCandidates[0] || null;
+            row =
+              busCandidates.find(
+                (r) => normalizeMachineLoose(r.MachineID) === machineLoose,
+              ) ||
+              busCandidates[0] ||
+              null;
           }
         }
       }
@@ -5913,7 +6912,7 @@
         `<b>Active Power:</b> ${esc(`${(Number(row["Pg(MW)"]) || 0).toFixed(2)} MW`)}`,
         `<b>Reactive Power:</b> ${esc(`${(Number(row["Qg(MVAr)"]) || 0).toFixed(2)} MVAr`)}`,
         `<b>Max Active Power:</b> ${esc(`${(Number(row["PgMax(MW)"]) || 0).toFixed(2)} MW`)}`,
-        `<b>Min Active Power:</b> ${esc(`${(Number(row["PgMin(MW)"]) || 0).toFixed(2)} MW`)}`
+        `<b>Min Active Power:</b> ${esc(`${(Number(row["PgMin(MW)"]) || 0).toFixed(2)} MW`)}`,
       ];
       return `<b>Generator</b><br>${lines.join("<br>")}`;
     };
@@ -5924,7 +6923,12 @@
       }
 
       gensLayer.eachLayer((layer) => {
-        if (!layer || !layer.isPopupOpen || !layer.getPopup || !layer.isPopupOpen()) {
+        if (
+          !layer ||
+          !layer.isPopupOpen ||
+          !layer.getPopup ||
+          !layer.isPopupOpen()
+        ) {
           return;
         }
 
@@ -5966,23 +6970,49 @@
       const rows = await readSeasonLineFlowsCsv(season, solver);
       const busRows = await readSeasonBusCsv(season, solver);
       const genRows = await readSeasonGenCsv(season, solver);
-      const contingencyRows = rows.filter((row) => row.__contingency === contingencyName);
-      activeContingencyConverged = contingencyRows.length > 0 && contingencyRows.every((row) => isTrueValue(row.Converged));
+      const contingencyRows = rows.filter(
+        (row) => row.__contingency === contingencyName,
+      );
+      activeContingencyConverged =
+        contingencyRows.length > 0 &&
+        contingencyRows.every((row) => isTrueValue(row.Converged));
 
       if (activeContingencyConverged) {
-        activeFlowRowsByUid = buildActiveFlowRowsByUid(rows, contingencyName, branchMetaByUid);
-        activeBusRowsByBusId = buildActiveBusRowsByBusId(busRows, contingencyName);
-        activeGenRowsByBusId = buildActiveGenRowsByBusId(genRows, contingencyName);
-        activeGenRowsByBusAndMachine = buildActiveGenRowsByBusAndMachine(genRows, contingencyName);
-        activeGenRowsListByBus = buildActiveGenRowsListByBus(genRows, contingencyName);
-        showStatusBanner(`Contingency ${contingencyName} (${season}, ${normalizeSolver(solver).toUpperCase()}) is now displayed.`, "success");
+        activeFlowRowsByUid = buildActiveFlowRowsByUid(
+          rows,
+          contingencyName,
+          branchMetaByUid,
+        );
+        activeBusRowsByBusId = buildActiveBusRowsByBusId(
+          busRows,
+          contingencyName,
+        );
+        activeGenRowsByBusId = buildActiveGenRowsByBusId(
+          genRows,
+          contingencyName,
+        );
+        activeGenRowsByBusAndMachine = buildActiveGenRowsByBusAndMachine(
+          genRows,
+          contingencyName,
+        );
+        activeGenRowsListByBus = buildActiveGenRowsListByBus(
+          genRows,
+          contingencyName,
+        );
+        showStatusBanner(
+          `Contingency ${contingencyName} (${season}, ${normalizeSolver(solver).toUpperCase()}) is now displayed.`,
+          "success",
+        );
       } else {
         activeFlowRowsByUid = {};
         activeBusRowsByBusId = {};
         activeGenRowsByBusId = {};
         activeGenRowsByBusAndMachine = {};
         activeGenRowsListByBus = {};
-        showStatusBanner("System did not converged. Select other contingency and season.", "error");
+        showStatusBanner(
+          "System did not converged. Select other contingency and season.",
+          "error",
+        );
       }
 
       refreshMetricButtonsState();
@@ -6018,9 +7048,13 @@
       const lineRows = await readBaseCaseLinesCsv(season, solver);
       const busRows = await readBaseCaseBusCsv(season, solver);
       const genRows = await readBaseCaseGenCsv(season, solver);
-      baseCaseFlowRowsByUid = buildBaseCaseFlowRowsByUid(lineRows, branchMetaByUid);
+      baseCaseFlowRowsByUid = buildBaseCaseFlowRowsByUid(
+        lineRows,
+        branchMetaByUid,
+      );
       baseCaseBusRowsByBusId = buildBaseCaseBusRowsByBusId(busRows);
-      baseCaseGenRowsByBusAndMachine = buildBaseCaseGenRowsByBusAndMachine(genRows);
+      baseCaseGenRowsByBusAndMachine =
+        buildBaseCaseGenRowsByBusAndMachine(genRows);
       baseCaseGenRowsListByBus = buildBaseCaseGenRowsListByBus(genRows);
     };
 
@@ -6067,7 +7101,11 @@
         refreshMetricButtonsState();
         return;
       }
-      await applyContingencySelection(selectedContingencyUid, selectedContingencySeason, solver);
+      await applyContingencySelection(
+        selectedContingencyUid,
+        selectedContingencySeason,
+        solver,
+      );
     };
 
     const applyBaseCaseMetricSelection = () => {
@@ -6082,15 +7120,23 @@
       refreshFlowAnimationControlState();
     };
 
-    const categoryOf = (feature) => ((feature && feature.properties && feature.properties.Category) || "Unknown");
-    const uniqueCategories = Array.from(new Set((genGeo.features || []).map(categoryOf))).sort();
+    const categoryOf = (feature) =>
+      (feature && feature.properties && feature.properties.Category) ||
+      "Unknown";
+    const uniqueCategories = Array.from(
+      new Set((genGeo.features || []).map(categoryOf)),
+    ).sort();
     const categoryColor = {};
     uniqueCategories.forEach((category, index) => {
       categoryColor[category] = categoryPalette[index % categoryPalette.length];
     });
 
-    const busTypeOf = (feature) => ((feature && feature.properties && feature.properties["Bus Type"]) || "Unknown");
-    const uniqueBusTypes = Array.from(new Set((busGeo.features || []).map(busTypeOf))).sort();
+    const busTypeOf = (feature) =>
+      (feature && feature.properties && feature.properties["Bus Type"]) ||
+      "Unknown";
+    const uniqueBusTypes = Array.from(
+      new Set((busGeo.features || []).map(busTypeOf)),
+    ).sort();
     const busTypeColor = {};
     uniqueBusTypes.forEach((busType, index) => {
       busTypeColor[busType] = categoryPalette[index % categoryPalette.length];
@@ -6099,29 +7145,40 @@
     const curvedBranchGeo = {
       ...branchGeo,
       features: (branchGeo.features || []).map((feature) => {
-        if (!feature || !feature.geometry || feature.geometry.type !== "LineString") {
+        if (
+          !feature ||
+          !feature.geometry ||
+          feature.geometry.type !== "LineString"
+        ) {
           return feature;
         }
 
         const coords = feature.geometry.coordinates || [];
-        const uid = (feature.properties && (feature.properties.UID || feature.properties["From Bus"])) || "";
+        const uid =
+          (feature.properties &&
+            (feature.properties.UID || feature.properties["From Bus"])) ||
+          "";
         const curvedCoords = curvedLineString(coords, hashString(uid));
 
         return {
           ...feature,
           geometry: {
             ...feature.geometry,
-            coordinates: curvedCoords
-          }
+            coordinates: curvedCoords,
+          },
         };
-      })
+      }),
     };
 
     const buildAreaLayer = () => {
       const pointsByArea = {};
 
       (busGeo.features || []).forEach((feature) => {
-        if (!feature || !feature.geometry || feature.geometry.type !== "Point") {
+        if (
+          !feature ||
+          !feature.geometry ||
+          feature.geometry.type !== "Point"
+        ) {
           return;
         }
 
@@ -6130,7 +7187,9 @@
           return;
         }
 
-        const areaRaw = feature.properties ? feature.properties.Area : undefined;
+        const areaRaw = feature.properties
+          ? feature.properties.Area
+          : undefined;
         if (areaRaw === undefined || areaRaw === null) {
           return;
         }
@@ -6144,7 +7203,9 @@
 
       const layers = [];
       Object.entries(pointsByArea).forEach(([area, points]) => {
-        const valid = points.filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]));
+        const valid = points.filter(
+          (point) => Number.isFinite(point[0]) && Number.isFinite(point[1]),
+        );
         if (valid.length < 3) {
           return;
         }
@@ -6165,7 +7226,7 @@
         polygon.bindTooltip(`Area ${area}`, {
           direction: "center",
           permanent: false,
-          sticky: true
+          sticky: true,
         });
         layers.push(polygon);
       });
@@ -6179,7 +7240,7 @@
       style: (feature) => lineStyleForFeature(feature),
       onEachFeature: (feature, layer) => {
         bindHoverPopup(layer, () => buildLineHoverPopupHtml(feature));
-      }
+      },
     }).addTo(map);
 
     createContingencyControl(
@@ -6192,7 +7253,7 @@
         if (contingencyPlotPanelRef) {
           contingencyPlotPanelRef.show();
         }
-      }
+      },
     );
     contingencyDataPanelRef = createContingencyDataPanel(map.getContainer());
     contingencyPlotPanelRef = createContingencyPlotPanel(map.getContainer());
@@ -6204,24 +7265,37 @@
         if (baseCasePlotPanelRef) {
           baseCasePlotPanelRef.show();
         }
-      }
+      },
     );
 
     createSimulationControl();
 
     // Pre-load default base case season data
-    loadBaseCaseData(selectedBaseCaseSeason, selectedBaseCaseSolver).then(() => {
-      refreshFlowAnimationControlState();
-    });
+    loadBaseCaseData(selectedBaseCaseSeason, selectedBaseCaseSolver).then(
+      () => {
+        refreshFlowAnimationControlState();
+      },
+    );
 
     baseCaseDataPanelRef = createBaseCaseDataPanel(map.getContainer());
     baseCasePlotPanelRef = createBaseCasePlotPanel(map.getContainer());
 
     genConnLayer = L.geoJSON(genConnGeo, {
-      style: () => ({ color: "#000000", weight: 2, opacity: 0.95, dashArray: "6,6" }),
+      style: () => ({
+        color: "#000000",
+        weight: 2,
+        opacity: 0.95,
+        dashArray: "6,6",
+      }),
       onEachFeature: (feature, layer) => {
-        bindHoverPopup(layer, propertiesToPopupHtml(feature.properties || {}, "Generator Connection"));
-      }
+        bindHoverPopup(
+          layer,
+          propertiesToPopupHtml(
+            feature.properties || {},
+            "Generator Connection",
+          ),
+        );
+      },
     });
 
     busesLayer = L.geoJSON(busGeo, {
@@ -6235,13 +7309,13 @@
             className: "bus-square-icon",
             html: busIconHtml(color),
             iconSize: [12, 12],
-            iconAnchor: [6, 6]
-          })
+            iconAnchor: [6, 6],
+          }),
         });
       },
       onEachFeature: (feature, layer) => {
         bindHoverPopup(layer, () => busContingencyPopupHtml(feature));
-      }
+      },
     }).addTo(map);
 
     const busTypeToLayers = {};
@@ -6258,16 +7332,17 @@
     });
 
     gensLayer = L.geoJSON(genGeo, {
-      pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
-        radius: 5,
-        color: categoryColor[categoryOf(feature)] || "#777777",
-        fillColor: categoryColor[categoryOf(feature)] || "#777777",
-        fillOpacity: 0.85,
-        weight: 1
-      }),
+      pointToLayer: (feature, latlng) =>
+        L.circleMarker(latlng, {
+          radius: 5,
+          color: categoryColor[categoryOf(feature)] || "#777777",
+          fillColor: categoryColor[categoryOf(feature)] || "#777777",
+          fillOpacity: 0.85,
+          weight: 1,
+        }),
       onEachFeature: (feature, layer) => {
         bindHoverPopup(layer, () => generatorPopupHtmlForFeature(feature));
-      }
+      },
     }).addTo(map);
 
     const categoryToLayers = {};
@@ -6292,10 +7367,10 @@
         }
 
         const category = categoryOf(layer.feature);
-        const color = usePurple ? purple : (categoryColor[category] || "#777777");
+        const color = usePurple ? purple : categoryColor[category] || "#777777";
         layer.setStyle({
           color,
-          fillColor: color
+          fillColor: color,
         });
       });
     };
@@ -6307,10 +7382,17 @@
 
       if (currentViewMode === "baseCase" && activeBaseCaseGeneratorMetric) {
         const bcGenRows = Object.values(baseCaseGenRowsByBusAndMachine);
-        const bcValues = bcGenRows.map((r) => getMetricValueForRow(r, activeBaseCaseGeneratorMetric)).filter((v) => Number.isFinite(v));
+        const bcValues = bcGenRows
+          .map((r) => getMetricValueForRow(r, activeBaseCaseGeneratorMetric))
+          .filter((v) => Number.isFinite(v));
         const bcMin = bcValues.length ? Math.floor(Math.min(...bcValues)) : 0;
         const bcMax = bcValues.length ? Math.ceil(Math.max(...bcValues)) : 1;
-        const fallbackColor = colorForMetricValue(bcMin, bcMin, bcMax, activeBaseCaseGeneratorMetric);
+        const fallbackColor = colorForMetricValue(
+          bcMin,
+          bcMin,
+          bcMax,
+          activeBaseCaseGeneratorMetric,
+        );
 
         gensLayer.eachLayer((layer) => {
           if (!layer || !layer.setStyle) {
@@ -6318,32 +7400,67 @@
           }
           const feature = layer.feature || {};
           const props = (feature && feature.properties) || {};
-          const busId = normalizeBusValue(props["Bus ID"] ?? props.BusNumber ?? props["Bus#"]);
-          const machineId = normalizeMachineValue(props["Gen ID"] ?? props.MachineID);
+          const busId = normalizeBusValue(
+            props["Bus ID"] ?? props.BusNumber ?? props["Bus#"],
+          );
+          const machineId = normalizeMachineValue(
+            props["Gen ID"] ?? props.MachineID,
+          );
           let row = null;
           if (busId && machineId) {
-            row = baseCaseGenRowsByBusAndMachine[genBusMachineKey(busId, machineId)] || null;
+            row =
+              baseCaseGenRowsByBusAndMachine[
+                genBusMachineKey(busId, machineId)
+              ] || null;
             if (!row) {
               const busCandidates = baseCaseGenRowsListByBus[busId] || [];
               if (busCandidates.length) {
-                row = busCandidates.find((r) => normalizeMachineLoose(r.MachineID) === normalizeMachineLoose(machineId)) || busCandidates[0] || null;
+                row =
+                  busCandidates.find(
+                    (r) =>
+                      normalizeMachineLoose(r.MachineID) ===
+                      normalizeMachineLoose(machineId),
+                  ) ||
+                  busCandidates[0] ||
+                  null;
               }
             }
           }
-          const value = getMetricValueForRow(row, activeBaseCaseGeneratorMetric);
-          const color = Number.isFinite(value) ? colorForMetricValue(value, bcMin, bcMax, activeBaseCaseGeneratorMetric) : fallbackColor;
+          const value = getMetricValueForRow(
+            row,
+            activeBaseCaseGeneratorMetric,
+          );
+          const color = Number.isFinite(value)
+            ? colorForMetricValue(
+                value,
+                bcMin,
+                bcMax,
+                activeBaseCaseGeneratorMetric,
+              )
+            : fallbackColor;
           layer.setStyle({ color, fillColor: color });
         });
         return;
       }
 
-      if (!(currentViewMode === "contingency" && activeContingencyConverged && activeGeneratorMetric)) {
+      if (
+        !(
+          currentViewMode === "contingency" &&
+          activeContingencyConverged &&
+          activeGeneratorMetric
+        )
+      ) {
         setGeneratorMarkerColors(currentViewMode === "contingency");
         return;
       }
 
       const { min, max } = getMetricRange(activeGeneratorMetric);
-      const fallbackColor = colorForMetricValue(min, min, max, activeGeneratorMetric);
+      const fallbackColor = colorForMetricValue(
+        min,
+        min,
+        max,
+        activeGeneratorMetric,
+      );
       gensLayer.eachLayer((layer) => {
         if (!layer || !layer.setStyle) {
           return;
@@ -6356,35 +7473,43 @@
         if (!Number.isFinite(value)) {
           layer.setStyle({
             color: fallbackColor,
-            fillColor: fallbackColor
+            fillColor: fallbackColor,
           });
           return;
         }
 
-        const metricName = activeGeneratorMetric === "genReactive" ? "genReactive" : "genActive";
+        const metricName =
+          activeGeneratorMetric === "genReactive" ? "genReactive" : "genActive";
         const color = colorForMetricValue(value, min, max, metricName);
         layer.setStyle({
           color,
-          fillColor: color
+          fillColor: color,
         });
       });
     };
 
-    const legendLine = "<span style=\"display:inline-block;width:16px;height:0;border-top:2px solid #4f81bd;vertical-align:middle;margin-right:6px;\"></span>";
-    const legendArea = "<span style=\"display:inline-block;width:10px;height:10px;background:#9ca3af;border:1px solid #6b7280;vertical-align:middle;margin-right:6px;\"></span>";
-    const legendBus = "<span style=\"display:inline-block;width:12px;height:12px;background:#06b6d4;border:1px solid #0891b2;box-sizing:border-box;vertical-align:middle;margin-right:6px;position:relative;overflow:hidden;\"><span style=\"position:absolute;left:-2px;top:5px;width:16px;height:1.4px;background:#111;transform:rotate(45deg);transform-origin:center;\"></span></span>";
-    const legendGen = "<span style=\"display:inline-block;width:10px;height:10px;background:#a855f7;border:1px solid #7e22ce;border-radius:50%;vertical-align:middle;margin-right:6px;\"></span>";
-    const legendGenConn = "<span style=\"display:inline-block;width:16px;height:0;border-top:2px dashed #000000;vertical-align:middle;margin-right:6px;\"></span>";
+    const legendLine =
+      '<span style="display:inline-block;width:16px;height:0;border-top:2px solid #4f81bd;vertical-align:middle;margin-right:6px;"></span>';
+    const legendArea =
+      '<span style="display:inline-block;width:10px;height:10px;background:#9ca3af;border:1px solid #6b7280;vertical-align:middle;margin-right:6px;"></span>';
+    const legendBus =
+      '<span style="display:inline-block;width:12px;height:12px;background:#06b6d4;border:1px solid #0891b2;box-sizing:border-box;vertical-align:middle;margin-right:6px;position:relative;overflow:hidden;"><span style="position:absolute;left:-2px;top:5px;width:16px;height:1.4px;background:#111;transform:rotate(45deg);transform-origin:center;"></span></span>';
+    const legendGen =
+      '<span style="display:inline-block;width:10px;height:10px;background:#a855f7;border:1px solid #7e22ce;border-radius:50%;vertical-align:middle;margin-right:6px;"></span>';
+    const legendGenConn =
+      '<span style="display:inline-block;width:16px;height:0;border-top:2px dashed #000000;vertical-align:middle;margin-right:6px;"></span>';
 
     const overlays = {
       [`${legendArea}Areas`]: areasLayer,
       [`${legendLine}Lines`]: linesLayer,
       [`${legendBus}Buses`]: busesLayer,
       [`${legendGen}Generators`]: gensLayer,
-      [`${legendGenConn}Generator Connections`]: genConnLayer
+      [`${legendGenConn}Generator Connections`]: genConnLayer,
     };
 
-    const layersControl = L.control.layers(null, overlays, { collapsed: false }).addTo(map);
+    const layersControl = L.control
+      .layers(null, overlays, { collapsed: false })
+      .addTo(map);
 
     map.on("zoomend", () => {
       if (isFlowAnimationActive) {
@@ -6485,7 +7610,11 @@
       title.textContent = "Generator Categories";
 
       const enableAllRow = L.DomUtil.create("label", "legend-row", div);
-      categoryEnableAllCheckbox = L.DomUtil.create("input", "legend-checkbox", enableAllRow);
+      categoryEnableAllCheckbox = L.DomUtil.create(
+        "input",
+        "legend-checkbox",
+        enableAllRow,
+      );
       categoryEnableAllCheckbox.type = "checkbox";
       categoryEnableAllCheckbox.checked = true;
       const enableAllText = L.DomUtil.create("span", "", enableAllRow);
@@ -6509,7 +7638,9 @@
         checkbox.addEventListener("change", () => {
           applyCategoryVisibility(category, checkbox.checked);
           if (categoryEnableAllCheckbox) {
-            categoryEnableAllCheckbox.checked = categoryCheckboxes.every((cb) => cb.checked);
+            categoryEnableAllCheckbox.checked = categoryCheckboxes.every(
+              (cb) => cb.checked,
+            );
           }
         });
       });
@@ -6537,7 +7668,11 @@
       title.textContent = "Buses";
 
       const enableAllRow = L.DomUtil.create("label", "legend-row", div);
-      busTypeEnableAllCheckbox = L.DomUtil.create("input", "legend-checkbox", enableAllRow);
+      busTypeEnableAllCheckbox = L.DomUtil.create(
+        "input",
+        "legend-checkbox",
+        enableAllRow,
+      );
       busTypeEnableAllCheckbox.type = "checkbox";
       busTypeEnableAllCheckbox.checked = true;
       const enableAllText = L.DomUtil.create("span", "", enableAllRow);
@@ -6561,7 +7696,9 @@
         checkbox.addEventListener("change", () => {
           applyBusTypeVisibility(busType, checkbox.checked);
           if (busTypeEnableAllCheckbox) {
-            busTypeEnableAllCheckbox.checked = busTypeCheckboxes.every((cb) => cb.checked);
+            busTypeEnableAllCheckbox.checked = busTypeCheckboxes.every(
+              (cb) => cb.checked,
+            );
           }
         });
       });
@@ -6587,12 +7724,18 @@
       const isSimulation = mode === "simulation";
       currentViewMode = mode;
 
-      setTheme((isContingency || isBaseCase || isSimulation) ? "dark" : "light");
+      setTheme(isContingency || isBaseCase || isSimulation ? "dark" : "light");
 
       // Keep the overlays in a deterministic state by mode.
       setLayerVisible(linesLayer, true);
-      setLayerVisible(areasLayer, !isContingency && !isBaseCase && !isSimulation);
-      setLayerVisible(genConnLayer, !isContingency && !isBaseCase && !isSimulation);
+      setLayerVisible(
+        areasLayer,
+        !isContingency && !isBaseCase && !isSimulation,
+      );
+      setLayerVisible(
+        genConnLayer,
+        !isContingency && !isBaseCase && !isSimulation,
+      );
 
       // Keep generators visible in both modes; contingency starts with purple generator markers enabled.
       setAllGeneratorCategories(true);
@@ -6602,27 +7745,37 @@
       setGeneratorMarkerColors(isContingency);
 
       if (genLegendElement) {
-        genLegendElement.style.display = (isContingency || isBaseCase || isSimulation) ? "none" : "block";
+        genLegendElement.style.display =
+          isContingency || isBaseCase || isSimulation ? "none" : "block";
       }
       if (busLegendElement) {
-        busLegendElement.style.display = (isContingency || isBaseCase || isSimulation) ? "none" : "block";
+        busLegendElement.style.display =
+          isContingency || isBaseCase || isSimulation ? "none" : "block";
       }
       if (contingencyControlContainer) {
-        contingencyControlContainer.style.display = isContingency ? "block" : "none";
+        contingencyControlContainer.style.display = isContingency
+          ? "block"
+          : "none";
       }
       if (baseCaseControlContainer) {
         baseCaseControlContainer.style.display = isBaseCase ? "block" : "none";
       }
       if (simulationControlContainer) {
-        simulationControlContainer.style.display = isSimulation ? "block" : "none";
+        simulationControlContainer.style.display = isSimulation
+          ? "block"
+          : "none";
       }
       if (simulationTimestampElement) {
-        simulationTimestampElement.style.display = isSimulation ? "flex" : "none";
+        simulationTimestampElement.style.display = isSimulation
+          ? "flex"
+          : "none";
       }
       if (!isSimulation) {
         stopSimulationLoop();
       } else {
-        ensureSimulationDataLoaded(selectedSimulationSeason).catch((err) => console.error(err));
+        ensureSimulationDataLoaded(selectedSimulationSeason).catch((err) =>
+          console.error(err),
+        );
       }
 
       refreshFlowAnimationControlState();
@@ -6636,7 +7789,10 @@
       refreshOpenBusPopups();
       refreshOpenGeneratorPopups();
 
-      setOverlayLegendEntryVisible("Generator Connections", !isContingency && !isBaseCase && !isSimulation);
+      setOverlayLegendEntryVisible(
+        "Generator Connections",
+        !isContingency && !isBaseCase && !isSimulation,
+      );
       setOverlayLegendEntryVisible("Buses", isContingency || isBaseCase);
       setOverlayLegendEntryVisible("Generators", isContingency || isBaseCase);
 
@@ -6873,10 +8029,16 @@
       if (infoPanelOverlayEl) {
         infoPanelOverlayEl.classList.add("open");
       }
-      if (!infoPanelTypeset && window.MathJax && window.MathJax.typesetPromise) {
-        window.MathJax.typesetPromise([infoPanelEl]).then(() => {
-          infoPanelTypeset = true;
-        }).catch(() => {});
+      if (
+        !infoPanelTypeset &&
+        window.MathJax &&
+        window.MathJax.typesetPromise
+      ) {
+        window.MathJax.typesetPromise([infoPanelEl])
+          .then(() => {
+            infoPanelTypeset = true;
+          })
+          .catch(() => {});
       }
     };
 
@@ -6915,44 +8077,68 @@
       onAdd() {
         const container = L.DomUtil.create("div", "view-mode-tabs leaflet-bar");
         container.id = "view-mode-tabs";
-        const defaultBtn = L.DomUtil.create("button", "view-mode-tab active", container);
+        const defaultBtn = L.DomUtil.create(
+          "button",
+          "view-mode-tab active",
+          container,
+        );
         defaultBtn.id = "view-mode-default";
         defaultBtn.type = "button";
         defaultBtn.textContent = "Default";
 
-        const baseCaseBtn = L.DomUtil.create("button", "view-mode-tab", container);
+        const baseCaseBtn = L.DomUtil.create(
+          "button",
+          "view-mode-tab",
+          container,
+        );
         baseCaseBtn.id = "view-mode-basecase";
         baseCaseBtn.type = "button";
         baseCaseBtn.textContent = "Base Case";
 
-        const contingencyBtn = L.DomUtil.create("button", "view-mode-tab", container);
+        const contingencyBtn = L.DomUtil.create(
+          "button",
+          "view-mode-tab",
+          container,
+        );
         contingencyBtn.id = "view-mode-contingency";
         contingencyBtn.type = "button";
         contingencyBtn.textContent = "Contingency Analysis";
 
-        const simulationBtn = L.DomUtil.create("button", "view-mode-tab", container);
+        const simulationBtn = L.DomUtil.create(
+          "button",
+          "view-mode-tab",
+          container,
+        );
         simulationBtn.id = "view-mode-simulation";
         simulationBtn.type = "button";
         simulationBtn.textContent = "Simulation";
 
-        const infoBtn = L.DomUtil.create("button", "view-mode-info-btn", container);
+        const infoBtn = L.DomUtil.create(
+          "button",
+          "view-mode-info-btn",
+          container,
+        );
         infoBtn.id = "view-mode-info";
         infoBtn.type = "button";
         infoBtn.title = "Conductor temperature methodology";
         infoBtn.setAttribute("aria-label", "Information");
-        infoBtn.innerHTML = "<span class=\"info-glyph\">i</span>";
+        infoBtn.innerHTML = '<span class="info-glyph">i</span>';
 
         L.DomEvent.disableClickPropagation(container);
         L.DomEvent.disableScrollPropagation(container);
 
         defaultBtn.addEventListener("click", () => setViewMode("default"));
         baseCaseBtn.addEventListener("click", () => setViewMode("baseCase"));
-        contingencyBtn.addEventListener("click", () => setViewMode("contingency"));
-        simulationBtn.addEventListener("click", () => setViewMode("simulation"));
+        contingencyBtn.addEventListener("click", () =>
+          setViewMode("contingency"),
+        );
+        simulationBtn.addEventListener("click", () =>
+          setViewMode("simulation"),
+        );
         infoBtn.addEventListener("click", () => openInfoPanel());
 
         return container;
-      }
+      },
     });
 
     map.addControl(new ViewModeControl());

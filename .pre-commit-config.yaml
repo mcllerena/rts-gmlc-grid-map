@@ -1,0 +1,23 @@
+repos:
+  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier
+        entry: npx --yes prettier@3.3.3 --write
+        language: system
+        types_or: [javascript, css, html, json, markdown, yaml]
+        require_serial: true
+
+      - id: ruff-check
+        name: ruff-check
+        entry: uvx ruff check --fix --select E401,I
+        language: system
+        types: [python]
+        require_serial: true
+
+      - id: ruff-format
+        name: ruff-format
+        entry: uvx ruff format
+        language: system
+        types: [python]
+        require_serial: true

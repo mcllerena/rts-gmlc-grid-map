@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
-
 ROOT_DIR = Path(__file__).resolve().parent
 ASSETS_DIR = ROOT_DIR / "assets"
 GIS_DIR = ROOT_DIR / "gis"
@@ -65,7 +64,9 @@ def _validate_required_files() -> Dict[str, Path]:
 
     missing = _missing_paths(list(required_files.values()) + required_assets)
     if missing:
-        missing_text = "\n".join(f"  - {path.relative_to(ROOT_DIR)}" for path in missing)
+        missing_text = "\n".join(
+            f"  - {path.relative_to(ROOT_DIR)}" for path in missing
+        )
         raise FileNotFoundError(
             "Missing required files to build the map:\n"
             f"{missing_text}\n"
@@ -75,7 +76,9 @@ def _validate_required_files() -> Dict[str, Path]:
     return required_files
 
 
-def build_map(output_file: Path = DEFAULT_OUTPUT_FILE, map_title: str = "RTS-GMLC Grid Map") -> Path:
+def build_map(
+    output_file: Path = DEFAULT_OUTPUT_FILE, map_title: str = "RTS-GMLC Grid Map"
+) -> Path:
     required_geojson_paths = _validate_required_files()
     bus_geojson = _load_geojson(required_geojson_paths["bus"])
     center_lat, center_lon = _bus_center(bus_geojson)

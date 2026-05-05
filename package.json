@@ -7,7 +7,8 @@
     "build": "python3 map.py",
     "start": "npm run build && npx serve .",
     "deploy": "npm run build && npx gh-pages -d .",
-    "prek:all": "npx --yes prek run --all-files"
+    "prek:all": "uvx pre-commit run --all-files",
+    "prek:install": "uvx pre-commit install"
   },
   "devDependencies": {
     "gh-pages": "^6.1.1",

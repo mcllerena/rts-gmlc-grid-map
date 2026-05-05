@@ -109,7 +109,9 @@ body.dark-mode .map-warning {
   justify-content: center;
   padding: 0;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-  transition: background 140ms ease, transform 140ms ease;
+  transition:
+    background 140ms ease,
+    transform 140ms ease;
 }
 
 .view-mode-info-btn:hover {
@@ -118,7 +120,10 @@ body.dark-mode .map-warning {
 }
 
 .view-mode-info-btn .info-glyph {
-  font: italic 700 16px/1 "Times New Roman", Georgia, serif;
+  font:
+    italic 700 16px/1 "Times New Roman",
+    Georgia,
+    serif;
 }
 
 body.dark-mode .view-mode-info-btn {
@@ -160,7 +165,10 @@ body.dark-mode .view-mode-info-btn:hover {
   z-index: 1600;
   display: flex;
   flex-direction: column;
-  font: 13px/1.55 "Inter", "Segoe UI", sans-serif;
+  font:
+    13px/1.55 "Inter",
+    "Segoe UI",
+    sans-serif;
 }
 
 .info-panel.open {
@@ -221,7 +229,11 @@ body.dark-mode .view-mode-info-btn:hover {
 }
 
 .info-panel-body code {
-  font: 12px/1.2 ui-monospace, Menlo, Consolas, monospace;
+  font:
+    12px/1.2 ui-monospace,
+    Menlo,
+    Consolas,
+    monospace;
   background: #f1f5f9;
   padding: 1px 4px;
   border-radius: 3px;
@@ -562,7 +574,10 @@ body.dark-mode .info-panel-bibliography a {
   background: #f3f4f6;
   color: #111827;
   cursor: pointer;
-  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    border-color 140ms ease;
 }
 
 .leaflet-control-layers-overlays label,
@@ -657,8 +672,13 @@ body.dark-mode .violation-summary-panel--empty {
 }
 
 @keyframes violation-glow-pulse {
-  0%, 100% { opacity: 0.45; }
-  50% { opacity: 0.85; }
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.85;
+  }
 }
 
 .line-color-legend {
@@ -937,7 +957,9 @@ body.dark-mode .line-color-legend-gradient {
   background: #e0f2fe;
   color: #0369a1;
   cursor: pointer;
-  transition: background 140ms ease, color 140ms ease;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
 }
 
 .bc-show-data-btn:hover {
@@ -953,7 +975,9 @@ body.dark-mode .line-color-legend-gradient {
   background: #ede9fe;
   color: #5b21b6;
   cursor: pointer;
-  transition: background 140ms ease, color 140ms ease;
+  transition:
+    background 140ms ease,
+    color 140ms ease;
 }
 
 .bc-plot-data-btn:hover {
@@ -1000,7 +1024,11 @@ body.dark-mode .bc-plot-data-btn:hover {
   background: #e0f2fe;
   color: #0c4a6e;
   cursor: pointer;
-  transition: background 140ms ease, color 140ms ease, border-color 140ms ease, opacity 140ms ease;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    border-color 140ms ease,
+    opacity 140ms ease;
 }
 
 .flow-animation-btn:hover {
@@ -1129,7 +1157,10 @@ body.dark-mode .flow-arrow-glyph {
   background: none;
   color: #6b7280;
   cursor: pointer;
-  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease;
 }
 
 .bc-data-tab:hover {
