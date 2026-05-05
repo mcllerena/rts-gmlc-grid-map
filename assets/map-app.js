@@ -33,6 +33,7 @@
   let contingencyControlContainer = null;
   let selectedContingencyUid = "";
   let selectedContingencySeason = "";
+  let selectedContingencySolver = "fnsl";
   let activeContingencyConverged = false;
   let activeLineMetric = "loading";
   let isBusVoltageMetricActive = false;
@@ -43,6 +44,8 @@
   let busVoltageMetricButton = null;
   let genActiveMetricButton = null;
   let genReactiveMetricButton = null;
+  let contingencyFnslButton = null;
+  let contingencyInlfButton = null;
   let activeGeneratorMetric = null;
   let lineColorLegendElement = null;
   const contingencySeasonByUid = {};
@@ -58,6 +61,7 @@
   // Base case state
   let baseCaseControlContainer = null;
   let selectedBaseCaseSeason = "summer";
+  let selectedBaseCaseSolver = "fnsl";
   let activeBaseCaseLineMetric = "loading";
   let isBaseCaseBusVoltageMetricActive = false;
   let activeBaseCaseGeneratorMetric = null;
@@ -67,6 +71,8 @@
   let bcBusVoltageMetricButton = null;
   let bcGenActiveMetricButton = null;
   let bcGenReactiveMetricButton = null;
+  let baseCaseFnslButton = null;
+  let baseCaseInlfButton = null;
   const baseCaseLineRowsCacheBySeason = new Map();
   const baseCaseBusRowsCacheBySeason = new Map();
   const baseCaseGenRowsCacheBySeason = new Map();
@@ -1237,6 +1243,10 @@
 
   const normalizeCktValue = (value) => String(value ?? "").trim().toUpperCase();
 
+  const normalizeSolver = (solver) => (String(solver || "").trim().toLowerCase() === "inlf" ? "inlf" : "fnsl");
+
+  const scenarioCacheKey = (season, solver) => `${String(season || "").trim().toLowerCase()}|${normalizeSolver(solver)}`;
+
   const cktCandidatesFromUid = (uid) => {
     const raw = String(uid ?? "").trim();
     const candidates = [];
@@ -1395,45 +1405,114 @@
     return out;
   };
 
-  const getSeasonLineCsvPathCandidates = (season) => {
-    if (season === "summer") {
-      return [
-        "./ca_results/summer/rts_gmlc_export_13_40_summer_v35_N1_lines.csv"
-      ];
+  const getCasePathCandidates = (season, caseFolder, fileName, solver = "fnsl") => {
+    if (!season || !caseFolder || !fileName) {
+      return [];
     }
-
+    const preferred = normalizeSolver(solver);
+    const secondary = preferred === "fnsl" ? "inlf" : "fnsl";
     return [
-      "./ca_results/winter/rts_gmlc_export_10_43_winter_v35_N1_lines.csv",
-      "./ca_results/summer/rts_gmlc_export_13_40_winter_v35_N1_lines.csv"
+      `./ca_results/${season}/${caseFolder}/${preferred}/${fileName}`,
+      `./ca_results/${season}/${caseFolder}/${secondary}/${fileName}`
     ];
   };
 
-  const readSeasonLineFlowsCsv = async (season) => {
-    if (!season) {
-      return [];
-    }
-
-    if (caRowsCacheBySeason.has(season)) {
-      return caRowsCacheBySeason.get(season);
-    }
-
-    const candidates = getSeasonLineCsvPathCandidates(season);
-    let text = "";
-
-    for (const path of candidates) {
+  const fetchFirstAvailableText = async (paths) => {
+    for (const path of (paths || [])) {
       try {
         const response = await fetch(path, { cache: "no-cache" });
         if (response.ok) {
-          text = await response.text();
-          break;
+          return await response.text();
         }
       } catch (_error) {
         // Try next candidate path.
       }
     }
+    return "";
+  };
+
+  const fetchFirstAvailable = async (paths) => {
+    for (const path of (paths || [])) {
+      try {
+        const response = await fetch(path, { cache: "no-cache" });
+        if (response.ok) {
+          return {
+            path,
+            text: await response.text()
+          };
+        }
+      } catch (_error) {
+        // Try next candidate path.
+      }
+    }
+    return { path: "", text: "" };
+  };
+
+  const stripRawComment = (line) => {
+    const slashIndex = line.indexOf("/");
+    if (slashIndex < 0) {
+      return line;
+    }
+    return line.slice(0, slashIndex);
+  };
+
+  const extractRawSectionRows = (rawText, beginMarker, endMarker) => {
+    if (!rawText || !beginMarker || !endMarker) {
+      return [];
+    }
+    const lines = String(rawText).split(/\r?\n/);
+    let inSection = false;
+    const out = [];
+    for (const line of lines) {
+      const trimmed = String(line || "").trim();
+      if (!inSection) {
+        if (trimmed.includes(beginMarker)) {
+          inSection = true;
+        }
+        continue;
+      }
+      if (trimmed.includes(endMarker)) {
+        break;
+      }
+      if (!trimmed || trimmed.startsWith("@!")) {
+        continue;
+      }
+      const noComment = stripRawComment(trimmed).trim();
+      if (!noComment || noComment === "0") {
+        continue;
+      }
+      out.push(parseCsvLine(noComment));
+    }
+    return out;
+  };
+
+  const getSeasonLineCsvPathCandidates = (season, solver) => {
+    const legacyFile = season === "summer"
+      ? "rts_gmlc_export_13_40_summer_v35_N1_lines.csv"
+      : "rts_gmlc_export_10_43_winter_v35_N1_lines.csv";
+
+    return [
+      ...getCasePathCandidates(season, "N-1", "N1_lines_with_realweather_T.csv", solver),
+      ...getCasePathCandidates(season, "N-1", legacyFile, solver),
+      `./ca_results/${season}/${legacyFile}`
+    ];
+  };
+
+  const readSeasonLineFlowsCsv = async (season, solver = "fnsl") => {
+    if (!season) {
+      return [];
+    }
+
+    const cacheKey = scenarioCacheKey(season, solver);
+
+    if (caRowsCacheBySeason.has(cacheKey)) {
+      return caRowsCacheBySeason.get(cacheKey);
+    }
+
+    const text = await fetchFirstAvailableText(getSeasonLineCsvPathCandidates(season, solver));
 
     if (!text) {
-      caRowsCacheBySeason.set(season, []);
+      caRowsCacheBySeason.set(cacheKey, []);
       return [];
     }
 
@@ -1443,7 +1522,7 @@
       .filter((line) => line.length > 0);
 
     if (!lines.length) {
-      caRowsCacheBySeason.set(season, []);
+      caRowsCacheBySeason.set(cacheKey, []);
       return [];
     }
 
@@ -1454,7 +1533,7 @@
     const cktIndex = header.indexOf("CKT");
 
     if (contingencyIndex < 0 || fromBusIndex < 0 || toBusIndex < 0 || cktIndex < 0) {
-      caRowsCacheBySeason.set(season, []);
+      caRowsCacheBySeason.set(cacheKey, []);
       return [];
     }
 
@@ -1474,7 +1553,7 @@
 
     // Merge conductor temperature (real weather) when available
     try {
-      const tempMap = await loadN1TempMap(season);
+      const tempMap = await loadN1TempMap(season, solver);
       if (tempMap && tempMap.size) {
         rows.forEach((r) => {
           const key = `${r.__contingency}|${r.__fromBus}|${r.__toBus}|${r.__ckt}`;
@@ -1486,49 +1565,37 @@
       }
     } catch (_e) { /* leave rows untouched */ }
 
-    caRowsCacheBySeason.set(season, rows);
+    caRowsCacheBySeason.set(cacheKey, rows);
     return rows;
   };
 
-  const getSeasonBusCsvPathCandidates = (season) => {
-    if (season === "summer") {
-      return [
-        "./ca_results/summer/rts_gmlc_export_13_40_summer_v35_N1_buses.csv"
-      ];
-    }
+  const getSeasonBusCsvPathCandidates = (season, solver) => {
+    const legacyFile = season === "summer"
+      ? "rts_gmlc_export_13_40_summer_v35_N1_buses.csv"
+      : "rts_gmlc_export_10_43_winter_v35_N1_buses.csv";
 
     return [
-      "./ca_results/winter/rts_gmlc_export_10_43_winter_v35_N1_buses.csv",
-      "./ca_results/summer/rts_gmlc_export_13_40_winter_v35_N1_buses.csv"
+      ...getCasePathCandidates(season, "N-1", "N1_lines_with_realweather_T.csv", solver),
+      ...getCasePathCandidates(season, "N-1", legacyFile, solver),
+      `./ca_results/${season}/${legacyFile}`
     ];
   };
 
-  const readSeasonBusCsv = async (season) => {
+  const readSeasonBusCsv = async (season, solver = "fnsl") => {
     if (!season) {
       return [];
     }
 
-    if (caBusRowsCacheBySeason.has(season)) {
-      return caBusRowsCacheBySeason.get(season);
+    const cacheKey = scenarioCacheKey(season, solver);
+
+    if (caBusRowsCacheBySeason.has(cacheKey)) {
+      return caBusRowsCacheBySeason.get(cacheKey);
     }
 
-    const candidates = getSeasonBusCsvPathCandidates(season);
-    let text = "";
-
-    for (const path of candidates) {
-      try {
-        const response = await fetch(path, { cache: "no-cache" });
-        if (response.ok) {
-          text = await response.text();
-          break;
-        }
-      } catch (_error) {
-        // Try next candidate path.
-      }
-    }
+    const text = await fetchFirstAvailableText(getSeasonBusCsvPathCandidates(season, solver));
 
     if (!text) {
-      caBusRowsCacheBySeason.set(season, []);
+      caBusRowsCacheBySeason.set(cacheKey, []);
       return [];
     }
 
@@ -1538,7 +1605,7 @@
       .filter((line) => line.length > 0);
 
     if (!lines.length) {
-      caBusRowsCacheBySeason.set(season, []);
+      caBusRowsCacheBySeason.set(cacheKey, []);
       return [];
     }
 
@@ -1548,7 +1615,7 @@
     const convergedIndex = header.indexOf("Converged");
 
     if (contingencyIndex < 0 || busIndex < 0 || convergedIndex < 0) {
-      caBusRowsCacheBySeason.set(season, []);
+      caBusRowsCacheBySeason.set(cacheKey, []);
       return [];
     }
 
@@ -1565,7 +1632,7 @@
       return row;
     });
 
-    caBusRowsCacheBySeason.set(season, rows);
+    caBusRowsCacheBySeason.set(cacheKey, rows);
     return rows;
   };
 
@@ -1582,47 +1649,33 @@
     return out;
   };
 
-  const getSeasonGenCsvPathCandidates = (season) => {
-    if (season === "summer") {
-      return [
-        "./ca_results/summer/rts_gmlc_export_13_40_summer_v35_N1_gens.csv",
-        "./ca_results/winter/rts_gmlc_export_10_43_summer_v35_N1_gens.csv"
-      ];
-    }
+  const getSeasonGenCsvPathCandidates = (season, solver) => {
+    const legacyFile = season === "summer"
+      ? "rts_gmlc_export_13_40_summer_v35_N1_gens.csv"
+      : "rts_gmlc_export_10_43_winter_v35_N1_gens.csv";
 
     return [
-      "./ca_results/summer/rts_gmlc_export_13_40_winter_v35_N1_gens.csv",
-      "./ca_results/winter/rts_gmlc_export_10_43_winter_v35_N1_gens.csv",
-      "./ca_results/summer/rts_gmlc_export_13_40_winter_v35_N1_gens.csv"
+      ...getCasePathCandidates(season, "N-1", "N1_lines_with_realweather_T.csv", solver),
+      ...getCasePathCandidates(season, "N-1", legacyFile, solver),
+      `./ca_results/${season}/${legacyFile}`
     ];
   };
 
-  const readSeasonGenCsv = async (season) => {
+  const readSeasonGenCsv = async (season, solver = "fnsl") => {
     if (!season) {
       return [];
     }
 
-    if (caGenRowsCacheBySeason.has(season)) {
-      return caGenRowsCacheBySeason.get(season);
+    const cacheKey = scenarioCacheKey(season, solver);
+
+    if (caGenRowsCacheBySeason.has(cacheKey)) {
+      return caGenRowsCacheBySeason.get(cacheKey);
     }
 
-    const candidates = getSeasonGenCsvPathCandidates(season);
-    let text = "";
-
-    for (const path of candidates) {
-      try {
-        const response = await fetch(path, { cache: "no-cache" });
-        if (response.ok) {
-          text = await response.text();
-          break;
-        }
-      } catch (_error) {
-        // Try next path.
-      }
-    }
+    const text = await fetchFirstAvailableText(getSeasonGenCsvPathCandidates(season, solver));
 
     if (!text) {
-      caGenRowsCacheBySeason.set(season, []);
+      caGenRowsCacheBySeason.set(cacheKey, []);
       return [];
     }
 
@@ -1632,7 +1685,7 @@
       .filter((line) => line.length > 0);
 
     if (!lines.length) {
-      caGenRowsCacheBySeason.set(season, []);
+      caGenRowsCacheBySeason.set(cacheKey, []);
       return [];
     }
 
@@ -1660,7 +1713,7 @@
       || qgMinIndex < 0
       || violationIndex < 0
     ) {
-      caGenRowsCacheBySeason.set(season, []);
+      caGenRowsCacheBySeason.set(cacheKey, []);
       return [];
     }
 
@@ -1682,7 +1735,7 @@
       return row;
     });
 
-    caGenRowsCacheBySeason.set(season, rows);
+    caGenRowsCacheBySeason.set(cacheKey, rows);
     return rows;
   };
 
@@ -1806,40 +1859,51 @@
 
   // ---- Base Case CSV readers ----
 
-  const getBaseCaseLineCsvPath = (season) => {
-    if (season === "summer") {
-      return "./ca_results/summer/rts_gmlc_export_13_40_summer_v35_base_acpf_lines.csv";
-    }
-    return "./ca_results/winter/rts_gmlc_export_10_43_winter_v35_base_acpf_lines.csv";
+  const getBaseCaseLineCsvPathCandidates = (season, solver) => {
+    const legacyFile = season === "summer"
+      ? "rts_gmlc_export_13_40_summer_v35_base_acpf_lines.csv"
+      : "rts_gmlc_export_10_43_winter_v35_base_acpf_lines.csv";
+
+    return [
+      ...getCasePathCandidates(season, "base_case", "base_lines_with_realweather_T.csv", solver),
+      ...getCasePathCandidates(season, "base_case", legacyFile, solver),
+      `./ca_results/${season}/${legacyFile}`
+    ];
   };
 
-  const readBaseCaseLinesCsv = async (season) => {
+  const getBaseCaseRawPathCandidates = (season, solver) => {
+    const preferred = normalizeSolver(solver);
+    const secondary = preferred === "fnsl" ? "inlf" : "fnsl";
+    const prefix = season === "summer"
+      ? "rts_gmlc_export_13_40_summer_v35_Radj_base"
+      : "rts_gmlc_export_10_43_winter_v35_Radj_base";
+    return [
+      `./ca_results/${season}/base_case/${preferred}/${prefix}_${preferred}.raw`,
+      `./ca_results/${season}/base_case/${secondary}/${prefix}_${secondary}.raw`
+    ];
+  };
+
+  const readBaseCaseLinesCsv = async (season, solver = "fnsl") => {
     if (!season) {
       return [];
     }
 
-    if (baseCaseLineRowsCacheBySeason.has(season)) {
-      return baseCaseLineRowsCacheBySeason.get(season);
+    const cacheKey = scenarioCacheKey(season, solver);
+
+    if (baseCaseLineRowsCacheBySeason.has(cacheKey)) {
+      return baseCaseLineRowsCacheBySeason.get(cacheKey);
     }
 
-    let text = "";
-    try {
-      const response = await fetch(getBaseCaseLineCsvPath(season), { cache: "no-cache" });
-      if (response.ok) {
-        text = await response.text();
-      }
-    } catch (_error) {
-      // ignore
-    }
+    const text = await fetchFirstAvailableText(getBaseCaseLineCsvPathCandidates(season, solver));
 
     if (!text) {
-      baseCaseLineRowsCacheBySeason.set(season, []);
+      baseCaseLineRowsCacheBySeason.set(cacheKey, []);
       return [];
     }
 
     const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
     if (!lines.length) {
-      baseCaseLineRowsCacheBySeason.set(season, []);
+      baseCaseLineRowsCacheBySeason.set(cacheKey, []);
       return [];
     }
 
@@ -1855,7 +1919,7 @@
     const qlossIndex = header.indexOf("Qloss(MVAr)");
 
     if (fromBusIndex < 0 || toBusIndex < 0 || cktIndex < 0) {
-      baseCaseLineRowsCacheBySeason.set(season, []);
+      baseCaseLineRowsCacheBySeason.set(cacheKey, []);
       return [];
     }
 
@@ -1886,7 +1950,7 @@
 
     // Merge conductor temperature (real weather) when available
     try {
-      const tempMap = await loadBaseCaseTempMap(season);
+      const tempMap = await loadBaseCaseTempMap(season, solver);
       if (tempMap && tempMap.size) {
         rows.forEach((r) => {
           const key = `${r.__fromBus}|${r.__toBus}|${r.__ckt}`;
@@ -1898,7 +1962,7 @@
       }
     } catch (_e) { /* leave rows untouched */ }
 
-    baseCaseLineRowsCacheBySeason.set(season, rows);
+    baseCaseLineRowsCacheBySeason.set(cacheKey, rows);
     return rows;
   };
 
@@ -1906,34 +1970,26 @@
   // Loaders for the *_with_realweather_T.csv companion files. The temperature
   // column is merged into the existing line rows on demand.
   const TEMP_COND_COLUMN = "Tcond_realweather(degC)";
-  const baseCaseTempBySeason = new Map();   // season -> Map<from|to|ckt, °C>
-  const n1TempBySeason = new Map();         // season -> Map<contingency|from|to|ckt, °C>
+  const baseCaseTempBySeason = new Map();   // season|solver -> Map<from|to|ckt, °C>
+  const n1TempBySeason = new Map();         // season|solver -> Map<contingency|from|to|ckt, °C>
 
-  const getBaseCaseTempCsvPath = (season) =>
-    season === "summer"
-      ? "./ca_results/summer/base_lines_with_realweather_T.csv"
-      : "./ca_results/winter/base_lines_with_realweather_T.csv";
+  const getBaseCaseTempCsvPathCandidates = (season, solver) => [
+    ...getCasePathCandidates(season, "base_case", "base_lines_with_realweather_T.csv", solver),
+    `./ca_results/${season}/base_lines_with_realweather_T.csv`
+  ];
 
-  const getN1TempCsvPath = (season) =>
-    season === "summer"
-      ? "./ca_results/summer/N1_lines_with_realweather_T.csv"
-      : "./ca_results/winter/N1_lines_with_realweather_T.csv";
+  const getN1TempCsvPathCandidates = (season, solver) => [
+    ...getCasePathCandidates(season, "N-1", "N1_lines_with_realweather_T.csv", solver),
+    `./ca_results/${season}/N1_lines_with_realweather_T.csv`
+  ];
 
-  const fetchTextOrEmpty = async (path) => {
-    try {
-      const response = await fetch(path, { cache: "no-cache" });
-      return response.ok ? await response.text() : "";
-    } catch (_error) {
-      return "";
-    }
-  };
-
-  const loadBaseCaseTempMap = async (season) => {
-    if (baseCaseTempBySeason.has(season)) {
-      return baseCaseTempBySeason.get(season);
+  const loadBaseCaseTempMap = async (season, solver = "fnsl") => {
+    const cacheKey = scenarioCacheKey(season, solver);
+    if (baseCaseTempBySeason.has(cacheKey)) {
+      return baseCaseTempBySeason.get(cacheKey);
     }
     const out = new Map();
-    const text = await fetchTextOrEmpty(getBaseCaseTempCsvPath(season));
+    const text = await fetchFirstAvailableText(getBaseCaseTempCsvPathCandidates(season, solver));
     if (text) {
       const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
       if (lines.length > 1) {
@@ -1954,16 +2010,17 @@
         }
       }
     }
-    baseCaseTempBySeason.set(season, out);
+    baseCaseTempBySeason.set(cacheKey, out);
     return out;
   };
 
-  const loadN1TempMap = async (season) => {
-    if (n1TempBySeason.has(season)) {
-      return n1TempBySeason.get(season);
+  const loadN1TempMap = async (season, solver = "fnsl") => {
+    const cacheKey = scenarioCacheKey(season, solver);
+    if (n1TempBySeason.has(cacheKey)) {
+      return n1TempBySeason.get(cacheKey);
     }
     const out = new Map();
-    const text = await fetchTextOrEmpty(getN1TempCsvPath(season));
+    const text = await fetchFirstAvailableText(getN1TempCsvPathCandidates(season, solver));
     if (text) {
       const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
       if (lines.length > 1) {
@@ -1985,44 +2042,59 @@
         }
       }
     }
-    n1TempBySeason.set(season, out);
+    n1TempBySeason.set(cacheKey, out);
     return out;
   };
 
-  const getBaseCaseBusCsvPath = (season) => {
-    if (season === "summer") {
-      return "./ca_results/summer/rts_gmlc_export_13_40_summer_v35_base_acpf_buses.csv";
-    }
-    return "./ca_results/winter/rts_gmlc_export_10_43_winter_v35_base_acpf_buses.csv";
+  const getBaseCaseBusCsvPathCandidates = (season, solver) => {
+    const legacyFile = season === "summer"
+      ? "rts_gmlc_export_13_40_summer_v35_base_acpf_buses.csv"
+      : "rts_gmlc_export_10_43_winter_v35_base_acpf_buses.csv";
+
+    return [
+      ...getCasePathCandidates(season, "base_case", legacyFile, solver),
+      `./ca_results/${season}/${legacyFile}`
+    ];
   };
 
-  const readBaseCaseBusCsv = async (season) => {
+  const readBaseCaseBusCsv = async (season, solver = "fnsl") => {
     if (!season) {
       return [];
     }
 
-    if (baseCaseBusRowsCacheBySeason.has(season)) {
-      return baseCaseBusRowsCacheBySeason.get(season);
+    const cacheKey = scenarioCacheKey(season, solver);
+
+    if (baseCaseBusRowsCacheBySeason.has(cacheKey)) {
+      return baseCaseBusRowsCacheBySeason.get(cacheKey);
     }
 
-    let text = "";
-    try {
-      const response = await fetch(getBaseCaseBusCsvPath(season), { cache: "no-cache" });
-      if (response.ok) {
-        text = await response.text();
-      }
-    } catch (_error) {
-      // ignore
-    }
+    const baseCandidates = [
+      ...getBaseCaseRawPathCandidates(season, solver),
+      ...getBaseCaseBusCsvPathCandidates(season, solver)
+    ];
+    const { path: resolvedPath, text } = await fetchFirstAvailable(baseCandidates);
 
     if (!text) {
-      baseCaseBusRowsCacheBySeason.set(season, []);
+      baseCaseBusRowsCacheBySeason.set(cacheKey, []);
       return [];
+    }
+
+    if (resolvedPath.endsWith(".raw")) {
+      const rawRows = extractRawSectionRows(text, "BEGIN BUS DATA", "END OF BUS DATA");
+      const rows = rawRows.map((cols) => ({
+        "Bus#": String(cols[0] || "").trim(),
+        Name: String(cols[1] || "").trim(),
+        "Volt(pu)": String(cols[7] || "").trim(),
+        "Angle(deg)": String(cols[8] || "").trim(),
+        __busId: normalizeBusValue(cols[0])
+      })).filter((row) => row.__busId.length > 0);
+      baseCaseBusRowsCacheBySeason.set(cacheKey, rows);
+      return rows;
     }
 
     const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
     if (!lines.length) {
-      baseCaseBusRowsCacheBySeason.set(season, []);
+      baseCaseBusRowsCacheBySeason.set(cacheKey, []);
       return [];
     }
 
@@ -2033,7 +2105,7 @@
     const angleIndex = header.indexOf("Angle(deg)");
 
     if (busIndex < 0 || voltPuIndex < 0) {
-      baseCaseBusRowsCacheBySeason.set(season, []);
+      baseCaseBusRowsCacheBySeason.set(cacheKey, []);
       return [];
     }
 
@@ -2048,44 +2120,64 @@
       };
     });
 
-    baseCaseBusRowsCacheBySeason.set(season, rows);
+    baseCaseBusRowsCacheBySeason.set(cacheKey, rows);
     return rows;
   };
 
-  const getBaseCaseGenCsvPath = (season) => {
-    if (season === "summer") {
-      return "./ca_results/summer/rts_gmlc_export_13_40_summer_v35_base_acpf_gens.csv";
-    }
-    return "./ca_results/winter/rts_gmlc_export_10_43_winter_v35_base_acpf_gens.csv";
+  const getBaseCaseGenCsvPathCandidates = (season, solver) => {
+    const legacyFile = season === "summer"
+      ? "rts_gmlc_export_13_40_summer_v35_base_acpf_gens.csv"
+      : "rts_gmlc_export_10_43_winter_v35_base_acpf_gens.csv";
+
+    return [
+      ...getCasePathCandidates(season, "base_case", legacyFile, solver),
+      `./ca_results/${season}/${legacyFile}`
+    ];
   };
 
-  const readBaseCaseGenCsv = async (season) => {
+  const readBaseCaseGenCsv = async (season, solver = "fnsl") => {
     if (!season) {
       return [];
     }
 
-    if (baseCaseGenRowsCacheBySeason.has(season)) {
-      return baseCaseGenRowsCacheBySeason.get(season);
+    const cacheKey = scenarioCacheKey(season, solver);
+
+    if (baseCaseGenRowsCacheBySeason.has(cacheKey)) {
+      return baseCaseGenRowsCacheBySeason.get(cacheKey);
     }
 
-    let text = "";
-    try {
-      const response = await fetch(getBaseCaseGenCsvPath(season), { cache: "no-cache" });
-      if (response.ok) {
-        text = await response.text();
-      }
-    } catch (_error) {
-      // ignore
-    }
+    const baseCandidates = [
+      ...getBaseCaseRawPathCandidates(season, solver),
+      ...getBaseCaseGenCsvPathCandidates(season, solver)
+    ];
+    const { path: resolvedPath, text } = await fetchFirstAvailable(baseCandidates);
 
     if (!text) {
-      baseCaseGenRowsCacheBySeason.set(season, []);
+      baseCaseGenRowsCacheBySeason.set(cacheKey, []);
       return [];
+    }
+
+    if (resolvedPath.endsWith(".raw")) {
+      const rawRows = extractRawSectionRows(text, "BEGIN GENERATOR DATA", "END OF GENERATOR DATA");
+      const rows = rawRows.map((cols) => ({
+        MachineID: String(cols[1] || "").trim(),
+        "Pg(MW)": String(cols[2] || "").trim(),
+        "Qg(MVAr)": String(cols[3] || "").trim(),
+        "PgMax(MW)": String(cols[16] || "").trim(),
+        "PgMin(MW)": String(cols[17] || "").trim(),
+        "QgMax(MVAr)": String(cols[4] || "").trim(),
+        "QgMin(MVAr)": String(cols[5] || "").trim(),
+        Violation: "",
+        __busId: normalizeBusValue(cols[0]),
+        __machineId: normalizeMachineValue(cols[1])
+      })).filter((row) => row.__busId.length > 0 && row.__machineId.length > 0);
+      baseCaseGenRowsCacheBySeason.set(cacheKey, rows);
+      return rows;
     }
 
     const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
     if (!lines.length) {
-      baseCaseGenRowsCacheBySeason.set(season, []);
+      baseCaseGenRowsCacheBySeason.set(cacheKey, []);
       return [];
     }
 
@@ -2100,7 +2192,7 @@
     const qgMinIndex = header.indexOf("QgMin(MVAr)");
 
     if (busIndex < 0 || machineIndex < 0 || pgIndex < 0 || qgIndex < 0) {
-      baseCaseGenRowsCacheBySeason.set(season, []);
+      baseCaseGenRowsCacheBySeason.set(cacheKey, []);
       return [];
     }
 
@@ -2120,7 +2212,7 @@
       };
     });
 
-    baseCaseGenRowsCacheBySeason.set(season, rows);
+    baseCaseGenRowsCacheBySeason.set(cacheKey, rows);
     return rows;
   };
 
@@ -2455,6 +2547,13 @@
       caPlotBtn.disabled = !enabled;
     }
 
+    if (contingencyFnslButton) {
+      contingencyFnslButton.classList.toggle("active", selectedContingencySolver === "fnsl");
+    }
+    if (contingencyInlfButton) {
+      contingencyInlfButton.classList.toggle("active", selectedContingencySolver === "inlf");
+    }
+
     // Base case buttons are always enabled when in base case mode
     if (bcLoadingMetricButton) {
       bcLoadingMetricButton.classList.toggle("active", activeBaseCaseLineMetric === "loading");
@@ -2473,6 +2572,12 @@
     }
     if (bcGenReactiveMetricButton) {
       bcGenReactiveMetricButton.classList.toggle("active", activeBaseCaseGeneratorMetric === "genReactive");
+    }
+    if (baseCaseFnslButton) {
+      baseCaseFnslButton.classList.toggle("active", selectedBaseCaseSolver === "fnsl");
+    }
+    if (baseCaseInlfButton) {
+      baseCaseInlfButton.classList.toggle("active", selectedBaseCaseSolver === "inlf");
     }
   };
 
@@ -2509,16 +2614,17 @@
   };
 
   // Tracks contingency names whose power-flow case did NOT converge for a
-  // given season. These are the ones that get a warning marker in the
+  // given season+solver. These are the ones that get a warning marker in the
   // contingency dropdown.
   const nonConvergedContingencyNamesBySeason = new Map();
 
-  const loadNonConvergedContingencyNames = async (season) => {
+  const loadNonConvergedContingencyNames = async (season, solver = "fnsl") => {
     if (!season) {
       return new Set();
     }
-    if (nonConvergedContingencyNamesBySeason.has(season)) {
-      return nonConvergedContingencyNamesBySeason.get(season);
+    const cacheKey = scenarioCacheKey(season, solver);
+    if (nonConvergedContingencyNamesBySeason.has(cacheKey)) {
+      return nonConvergedContingencyNamesBySeason.get(cacheKey);
     }
     const set = new Set();
     const collect = (rows) => {
@@ -2534,19 +2640,19 @@
     };
     try {
       const [lineRows, busRows, genRows] = await Promise.all([
-        readSeasonLineFlowsCsv(season).catch(() => []),
-        readSeasonBusCsv(season).catch(() => []),
-        readSeasonGenCsv(season).catch(() => [])
+        readSeasonLineFlowsCsv(season, solver).catch(() => []),
+        readSeasonBusCsv(season, solver).catch(() => []),
+        readSeasonGenCsv(season, solver).catch(() => [])
       ]);
       collect(lineRows);
       collect(busRows);
       collect(genRows);
     } catch (_e) { /* keep empty set */ }
-    nonConvergedContingencyNamesBySeason.set(season, set);
+    nonConvergedContingencyNamesBySeason.set(cacheKey, set);
     return set;
   };
 
-  const createContingencyControl = (branchGeo, lineNameByUid, onSelectionChange, onMetricChange, onPlotData) => {
+  const createContingencyControl = (branchGeo, lineNameByUid, onSelectionChange, onMetricChange, onSolverChange, onPlotData) => {
     const lineOptions = Array.from(new Set((branchGeo.features || [])
       .map((feature) => String((feature && feature.properties && feature.properties.UID) || ""))
       .filter((uid) => uid.length > 0)))
@@ -2720,6 +2826,17 @@
         winterOption.value = "winter";
         winterOption.textContent = "Winter";
 
+        const solverButtonsWrap = L.DomUtil.create("div", "contingency-metric-buttons", dropdownWrap);
+        contingencyFnslButton = L.DomUtil.create("button", "contingency-metric-btn", solverButtonsWrap);
+        contingencyFnslButton.type = "button";
+        contingencyFnslButton.textContent = "FNSL";
+        contingencyFnslButton.title = "Newton-Raphson power flow results";
+
+        contingencyInlfButton = L.DomUtil.create("button", "contingency-metric-btn", solverButtonsWrap);
+        contingencyInlfButton.type = "button";
+        contingencyInlfButton.textContent = "INLF";
+        contingencyInlfButton.title = "Inertial/Governor Newton-Raphson results";
+
         const metricButtonsWrap = L.DomUtil.create("div", "contingency-metric-buttons", dropdownWrap);
         loadingMetricButton = L.DomUtil.create("button", "contingency-metric-btn active", metricButtonsWrap);
         loadingMetricButton.type = "button";
@@ -2836,8 +2953,11 @@
           // across any season we have already loaded. Marked options surface
           // the lines whose outage breaks the power flow.
           const nonConvergedUnion = new Set();
-          nonConvergedContingencyNamesBySeason.forEach((set) => {
-            set.forEach((name) => nonConvergedUnion.add(name));
+          ["summer", "winter"].forEach((season) => {
+            const set = nonConvergedContingencyNamesBySeason.get(scenarioCacheKey(season, selectedContingencySolver));
+            if (set) {
+              set.forEach((name) => nonConvergedUnion.add(name));
+            }
           });
           Array.from(select.options).forEach((option) => {
             if (!option.value) {
@@ -2863,11 +2983,12 @@
           if (!season) {
             return;
           }
-          if (nonConvergedContingencyNamesBySeason.has(season)) {
+          const key = scenarioCacheKey(season, selectedContingencySolver);
+          if (nonConvergedContingencyNamesBySeason.has(key)) {
             refreshLineOptionLabels();
             return;
           }
-          loadNonConvergedContingencyNames(season).then(() => {
+          loadNonConvergedContingencyNames(season, selectedContingencySolver).then(() => {
             refreshLineOptionLabels();
           });
         };
@@ -2889,6 +3010,28 @@
         ensureViolationDataForSeason("summer");
         ensureViolationDataForSeason("winter");
 
+        contingencyFnslButton.addEventListener("click", () => {
+          if (selectedContingencySolver === "fnsl") {
+            return;
+          }
+          selectedContingencySolver = "fnsl";
+          ensureViolationDataForSeason("summer");
+          ensureViolationDataForSeason("winter");
+          refreshLineOptionLabels();
+          onSolverChange(selectedContingencySolver);
+        });
+
+        contingencyInlfButton.addEventListener("click", () => {
+          if (selectedContingencySolver === "inlf") {
+            return;
+          }
+          selectedContingencySolver = "inlf";
+          ensureViolationDataForSeason("summer");
+          ensureViolationDataForSeason("winter");
+          refreshLineOptionLabels();
+          onSolverChange(selectedContingencySolver);
+        });
+
         button.addEventListener("click", () => {
           const showing = dropdownWrap.style.display !== "none";
           dropdownWrap.style.display = showing ? "none" : "block";
@@ -2908,7 +3051,7 @@
           selectedContingencySeason = selectedContingencyUid
             ? (contingencySeasonByUid[selectedContingencyUid] || selectedContingencySeason || "")
             : "";
-          onSelectionChange(selectedContingencyUid, selectedContingencySeason);
+          onSelectionChange(selectedContingencyUid, selectedContingencySeason, selectedContingencySolver);
         });
 
         seasonSelect.addEventListener("change", () => {
@@ -2924,7 +3067,7 @@
 
           refreshLineOptionLabels();
           selectedContingencySeason = contingencySeasonByUid[selectedContingencyUid] || "";
-          onSelectionChange(selectedContingencyUid, selectedContingencySeason);
+          onSelectionChange(selectedContingencyUid, selectedContingencySeason, selectedContingencySolver);
         });
 
         loadingMetricButton.addEventListener("click", () => {
@@ -2998,7 +3141,7 @@
     map.addControl(new ContingencyControl());
   };
 
-  const createBaseCaseControl = (onSeasonChange, onMetricChange, onPlotData) => {
+  const createBaseCaseControl = (onSeasonChange, onMetricChange, onSolverChange, onPlotData) => {
     const BaseCaseControl = L.Control.extend({
       options: { position: "topleft" },
       onAdd() {
@@ -3022,6 +3165,17 @@
         winterOption.value = "winter";
         winterOption.textContent = "Winter";
         seasonSelect.value = selectedBaseCaseSeason;
+
+        const solverButtonsWrap = L.DomUtil.create("div", "contingency-metric-buttons", dropdownWrap);
+        baseCaseFnslButton = L.DomUtil.create("button", "contingency-metric-btn", solverButtonsWrap);
+        baseCaseFnslButton.type = "button";
+        baseCaseFnslButton.textContent = "FNSL";
+        baseCaseFnslButton.title = "Newton-Raphson power flow results";
+
+        baseCaseInlfButton = L.DomUtil.create("button", "contingency-metric-btn", solverButtonsWrap);
+        baseCaseInlfButton.type = "button";
+        baseCaseInlfButton.textContent = "INLF";
+        baseCaseInlfButton.title = "Inertial/Governor Newton-Raphson results";
 
         const metricButtonsWrap = L.DomUtil.create("div", "contingency-metric-buttons", dropdownWrap);
 
@@ -3059,6 +3213,22 @@
         seasonSelect.addEventListener("change", () => {
           selectedBaseCaseSeason = seasonSelect.value;
           onSeasonChange(selectedBaseCaseSeason);
+        });
+
+        baseCaseFnslButton.addEventListener("click", () => {
+          if (selectedBaseCaseSolver === "fnsl") {
+            return;
+          }
+          selectedBaseCaseSolver = "fnsl";
+          onSolverChange(selectedBaseCaseSolver);
+        });
+
+        baseCaseInlfButton.addEventListener("click", () => {
+          if (selectedBaseCaseSolver === "inlf") {
+            return;
+          }
+          selectedBaseCaseSolver = "inlf";
+          onSolverChange(selectedBaseCaseSolver);
         });
 
         bcLoadingMetricButton.addEventListener("click", () => {
@@ -3124,7 +3294,10 @@
   };
 
   // ── Simulation: annual conductor temperature animation ─────────────────
-  const SIMULATION_TIMESERIES_URL = (season) => `./ca_results/${season}/temperature_timeseries.json`;
+  const getSimulationTimeseriesPathCandidates = (season) => [
+    ...getCasePathCandidates(season, "base_case", "temperature_timeseries.json"),
+    `./ca_results/${season}/temperature_timeseries.json`
+  ];
 
   const formatSimulationTimestamp = (date) => {
     const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -3183,11 +3356,26 @@
     if (simulationManifestBySeason.has(season)) {
       return simulationManifestBySeason.get(season);
     }
-    const res = await fetch(SIMULATION_TIMESERIES_URL(season));
-    if (!res.ok) {
-      throw new Error(`Failed to load ${SIMULATION_TIMESERIES_URL(season)}: ${res.status}`);
+    const candidates = getSimulationTimeseriesPathCandidates(season);
+    let res = null;
+    let resolvedPath = "";
+    for (const path of candidates) {
+      try {
+        const candidateRes = await fetch(path);
+        if (candidateRes.ok) {
+          res = candidateRes;
+          resolvedPath = path;
+          break;
+        }
+      } catch (_error) {
+        // Try next candidate.
+      }
+    }
+    if (!res) {
+      throw new Error(`Failed to load simulation manifest for ${season} from ${candidates.join(", ")}`);
     }
     const manifest = await res.json();
+    manifest.__sourcePath = resolvedPath;
     simulationManifestBySeason.set(season, manifest);
     if (selectedSimulationSeason === season && currentViewMode === "simulation") {
       const { start, end } = getSimulationFrameRange();
@@ -4568,7 +4756,7 @@
         hover,
         yLabel: metric.yLabel,
         xLabel: tab.xLabel,
-        title: `Base Case ${tab.label} - ${metric.label} (${selectedBaseCaseSeason})`,
+        title: `Base Case ${tab.label} - ${metric.label} (${selectedBaseCaseSeason}, ${selectedBaseCaseSolver.toUpperCase()})`,
         itemLabelPlural: tab.itemLabelPlural,
         metricKey: metric.key,
         metricPrimaryColor: metric.primaryColor,
@@ -4591,7 +4779,7 @@
         } catch (_error) {
           // Ignore purge errors.
         }
-        showEmpty(`No values available for ${selectedBaseCaseSeason} (${payload.yLabel}).`);
+        showEmpty(`No values available for ${selectedBaseCaseSeason} ${selectedBaseCaseSolver.toUpperCase()} (${payload.yLabel}).`);
         return;
       }
 
@@ -4741,7 +4929,7 @@
         displaylogo: false,
         modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"],
         toImageButtonOptions: {
-          filename: `base_case_${activeTab}_${payload.metricKey}_${selectedBaseCaseSeason}`
+          filename: `base_case_${activeTab}_${payload.metricKey}_${selectedBaseCaseSeason}_${selectedBaseCaseSolver}`
         }
       };
 
@@ -5133,6 +5321,7 @@
       const hover = seriesRows.map((row) => getHoverText(activeTab, row));
       const contingencyLabel = selectedContingencyUid || "N/A";
       const seasonLabel = selectedContingencySeason || "N/A";
+      const solverLabel = selectedContingencySolver.toUpperCase();
 
       return {
         rowsCount: rows.length,
@@ -5142,13 +5331,14 @@
         hover,
         yLabel: metric.yLabel,
         xLabel: tab.xLabel,
-        title: `Contingency ${tab.label} - ${metric.label} (${contingencyLabel}, ${seasonLabel})`,
+        title: `Contingency ${tab.label} - ${metric.label} (${contingencyLabel}, ${seasonLabel}, ${solverLabel})`,
         itemLabelPlural: tab.itemLabelPlural,
         metricKey: metric.key,
         metricPrimaryColor: metric.primaryColor,
         metricAccentColor: metric.accentColor,
         contingencyLabel,
-        seasonLabel
+        seasonLabel,
+        solverLabel
       };
     };
 
@@ -5167,7 +5357,7 @@
         } catch (_error) {
           // Ignore purge errors.
         }
-        showEmpty(`No values available for ${payload.contingencyLabel} (${payload.seasonLabel}, ${payload.yLabel}).`);
+        showEmpty(`No values available for ${payload.contingencyLabel} (${payload.seasonLabel}, ${payload.solverLabel}, ${payload.yLabel}).`);
         return;
       }
 
@@ -5317,7 +5507,7 @@
         displaylogo: false,
         modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"],
         toImageButtonOptions: {
-          filename: `contingency_${activeTab}_${payload.metricKey}_${payload.contingencyLabel}_${payload.seasonLabel}`
+          filename: `contingency_${activeTab}_${payload.metricKey}_${payload.contingencyLabel}_${payload.seasonLabel}_${selectedContingencySolver}`
         }
       };
 
@@ -5747,7 +5937,7 @@
       });
     };
 
-    const applyContingencySelection = async (uid, season) => {
+    const applyContingencySelection = async (uid, season, solver = "fnsl") => {
       if (!uid || !season) {
         activeFlowRowsByUid = {};
         activeBusRowsByBusId = {};
@@ -5773,9 +5963,9 @@
       }
 
       const contingencyName = lineNameByUid[uid] || uid;
-      const rows = await readSeasonLineFlowsCsv(season);
-      const busRows = await readSeasonBusCsv(season);
-      const genRows = await readSeasonGenCsv(season);
+      const rows = await readSeasonLineFlowsCsv(season, solver);
+      const busRows = await readSeasonBusCsv(season, solver);
+      const genRows = await readSeasonGenCsv(season, solver);
       const contingencyRows = rows.filter((row) => row.__contingency === contingencyName);
       activeContingencyConverged = contingencyRows.length > 0 && contingencyRows.every((row) => isTrueValue(row.Converged));
 
@@ -5785,7 +5975,7 @@
         activeGenRowsByBusId = buildActiveGenRowsByBusId(genRows, contingencyName);
         activeGenRowsByBusAndMachine = buildActiveGenRowsByBusAndMachine(genRows, contingencyName);
         activeGenRowsListByBus = buildActiveGenRowsListByBus(genRows, contingencyName);
-        showStatusBanner(`Contingency ${contingencyName} (${season}) is now displayed.`, "success");
+        showStatusBanner(`Contingency ${contingencyName} (${season}, ${normalizeSolver(solver).toUpperCase()}) is now displayed.`, "success");
       } else {
         activeFlowRowsByUid = {};
         activeBusRowsByBusId = {};
@@ -5824,10 +6014,10 @@
       refreshFlowAnimationControlState();
     };
 
-    const loadBaseCaseData = async (season) => {
-      const lineRows = await readBaseCaseLinesCsv(season);
-      const busRows = await readBaseCaseBusCsv(season);
-      const genRows = await readBaseCaseGenCsv(season);
+    const loadBaseCaseData = async (season, solver = "fnsl") => {
+      const lineRows = await readBaseCaseLinesCsv(season, solver);
+      const busRows = await readBaseCaseBusCsv(season, solver);
+      const genRows = await readBaseCaseGenCsv(season, solver);
       baseCaseFlowRowsByUid = buildBaseCaseFlowRowsByUid(lineRows, branchMetaByUid);
       baseCaseBusRowsByBusId = buildBaseCaseBusRowsByBusId(busRows);
       baseCaseGenRowsByBusAndMachine = buildBaseCaseGenRowsByBusAndMachine(genRows);
@@ -5835,7 +6025,7 @@
     };
 
     const applyBaseCaseSeasonChange = async (season) => {
-      await loadBaseCaseData(season);
+      await loadBaseCaseData(season, selectedBaseCaseSolver);
       if (baseCaseDataPanelRef) {
         baseCaseDataPanelRef.refresh();
       }
@@ -5851,6 +6041,33 @@
       refreshOpenLinePopups();
       refreshOpenBusPopups();
       refreshOpenGeneratorPopups();
+    };
+
+    const applyBaseCaseSolverChange = async (solver) => {
+      await loadBaseCaseData(selectedBaseCaseSeason, solver);
+      if (baseCaseDataPanelRef) {
+        baseCaseDataPanelRef.refresh();
+      }
+      if (baseCasePlotPanelRef) {
+        baseCasePlotPanelRef.refresh();
+      }
+      refreshFlowAnimationControlState();
+      refreshMetricButtonsState();
+      refreshLineColorLegend();
+      refreshLineHighlight();
+      refreshBusColors();
+      refreshGeneratorColors();
+      refreshOpenLinePopups();
+      refreshOpenBusPopups();
+      refreshOpenGeneratorPopups();
+    };
+
+    const applyContingencySolverChange = async (solver) => {
+      if (!selectedContingencyUid || !selectedContingencySeason) {
+        refreshMetricButtonsState();
+        return;
+      }
+      await applyContingencySelection(selectedContingencyUid, selectedContingencySeason, solver);
     };
 
     const applyBaseCaseMetricSelection = () => {
@@ -5970,6 +6187,7 @@
       lineNameByUid,
       applyContingencySelection,
       applyMetricSelection,
+      applyContingencySolverChange,
       () => {
         if (contingencyPlotPanelRef) {
           contingencyPlotPanelRef.show();
@@ -5981,6 +6199,7 @@
     createBaseCaseControl(
       applyBaseCaseSeasonChange,
       applyBaseCaseMetricSelection,
+      applyBaseCaseSolverChange,
       () => {
         if (baseCasePlotPanelRef) {
           baseCasePlotPanelRef.show();
@@ -5991,7 +6210,7 @@
     createSimulationControl();
 
     // Pre-load default base case season data
-    loadBaseCaseData(selectedBaseCaseSeason).then(() => {
+    loadBaseCaseData(selectedBaseCaseSeason, selectedBaseCaseSolver).then(() => {
       refreshFlowAnimationControlState();
     });
 

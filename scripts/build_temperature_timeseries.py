@@ -12,7 +12,7 @@ files that the browser can fetch. Output schema:
 Run:  python3 scripts/build_temperature_timeseries.py
 """
 from __future__ import annotations
-import json, os, re, sys
+import json, re, sys
 from pathlib import Path
 import h5py
 import numpy as np
@@ -129,9 +129,15 @@ def process_season(h5_path: Path, uid_map: dict[str, str], out_path: Path) -> No
 def main() -> int:
     uid_map = build_uid_map(GIS_BRANCH)
     for season in ("summer", "winter"):
-        h5_path = ROOT / "ca_results" / season / f"{season}_timeseries.h5"
-        out_path = ROOT / "ca_results" / season / "temperature_timeseries.json"
-        process_season(h5_path, uid_map, out_path)
+        for solver in ("fnsl", "inlf"):
+            h5_path = ROOT / "ca_results" / season / "base_case" / solver / f"{season}_{solver}_timeseries.h5"
+            out_path = ROOT / "ca_results" / season / "base_case" / solver / "temperature_timeseries.json"
+            process_season(h5_path, uid_map, out_path)
+
+        # Backward-compatible legacy layout support.
+        legacy_h5_path = ROOT / "ca_results" / season / f"{season}_timeseries.h5"
+        legacy_out_path = ROOT / "ca_results" / season / "temperature_timeseries.json"
+        process_season(legacy_h5_path, uid_map, legacy_out_path)
     return 0
 
 
